@@ -6,8 +6,8 @@ Automatic Program Generator
 http://www.hpinfotech.com
 
 Project : BC cart
-Version : 2.0.0
-Date    : 2017-11-09
+Version : 2.1.0
+Date    : 2017-11-29
 Author  : Mrjohd
 Company : Univ. Chungnam
 Comments: HOLY FUCKING SHIT
@@ -42,29 +42,28 @@ Data Stack size         : 1024
 #define Left_switch_off   (PINE.4)
 #define Middle_switch_off (PINE.5)
 #define Right_switch_off  (PINE.6)
-
+//*****************************************************************************************************************
 //About Motor
 #define Motor_on  ETIMSK = 0x10, TIMSK = 0x10 
 #define Motor_off ETIMSK = 0x00, TIMSK = 0x00
-
+//*****************************************************************************************************************
 // ****** Declare your global variables here  ******
 unsigned char h = 0; // counting variable for ADC interrupt
 unsigned char sam_num = 0; // counting variable for ADC interrupt
 unsigned char i = 0; // counting variable for function
 unsigned char j = 0; // counting variable for function
+//*****************************************************************************************************************
 // LCD
 unsigned char lcd_data[40];   
- 
+//*****************************************************************************************************************
 //About position                                        
 signed int position = 0;
 signed int position_array[8] = {0, -25, -15, -5, 5, 15, 25, 0}; //position이 반대인 경우 이 배열을 바꾸세요  
 unsigned char Pgain=42;
-
+//*****************************************************************************************************************
 // Motor                               
 unsigned char RMotorPhase[8] = {0x90, 0x80, 0xa0, 0x20, 0x60, 0x40, 0x50, 0x10};
-
 unsigned char LMotorPhase[8] = {0x01, 0x05, 0x04, 0x06, 0x02, 0x0A, 0x08, 0x09};
-
 unsigned char RPhaseIndex = 0;
 unsigned char LPhaseIndex = 0;
 signed long  RaccTableIndex = 0;
@@ -83,21 +82,29 @@ unsigned char minustop = 3;
 
 //About Control flag
 unsigned char Timer_flag = 1;
-
+//*****************************************************************************************************************
 // ADC
-unsigned char adc_data[4] = {0};
-unsigned char dist_data[3][100] = {0}; //adc변환 이후 PSD값이 저장되는 배열
-unsigned int dist_sum[3]={0}; 
-unsigned char dist_mean[3]={0};
-unsigned char mux = 4;
-
-// * PSD
+//unsigned char adc_data[4][100] = {0}; //adc 후 IR/압력센서/cds값이 저장됨
+unsigned char mux = 4; 
+unsigned char num_sample = 100;
 unsigned char d_flag = 0;
+
+// * PSD    
+unsigned char dist_data[3][100] = {0}; //adc변환 이후 PSD값이 저장되는 배열
 unsigned char dist_max[3] = {0, 0, 0}; //tuning에서 최대값 및 최소값을 넣기 위한 배열
 unsigned char dist_min[3] = {255, 255, 255};
-unsigned char num_sample = 100;
+unsigned int dist_sum[3]={0}; 
+unsigned char dist_mean[3]={0};
 
-// Driving
+// * cds
+unsigned char cds_data[100] = {0}; //adc 후 cds값이 저장됨
+unsigned char cds_max = 0; //tuning에서 최대값 및 최소값을 넣기 위한 배열
+unsigned char cds_min = 255;
+unsigned int cds_sum = 0; 
+unsigned char cds_mean = 0;
+
+//*****************************************************************************************************************
+// Position
 unsigned char leave_flag = 0; 
 unsigned char approach = 0;
 unsigned char detach = 0;
@@ -109,6 +116,7 @@ unsigned long distance_min;
 signed int dir = 0;
 unsigned char mode = 0;
 
+//*****************************************************************************************************************
 // Timer1 output compare A interrupt service routine
 interrupt [TIM1_COMPA] void timer1_compa_isr(void)
 {
@@ -161,26 +169,24 @@ interrupt [TIM3_COMPA] void timer3_compa_isr(void)
     step++;
 }
 
-// ADC interrupt service routine
+// ********************************* ADC interrupt service routine ************************************************
 interrupt [ADC_INT] void adc_isr(void)
 {  
 
     // Read the AD conversion result   
     for (h = 0; h<=6; h++);   
-       
-    if(mux>4)
-    {   
-        dist_data[mux-5][sam_num] = ADCH; //ADC값의 high값을 사용함 
-        sam_num++; 
-        if(sam_num == num_sample) 
-        {
-            mux++;
-            sam_num=0;
-            d_flag=1;
-        }
-    }
-    else adc_data[mux] = ADCH;   
+    sam_num++;   
+    if(mux>4)   dist_data[mux-5][sam_num] = ADCH; 
+    else if(mux==4) cds_data[sam_num] = ADCH;  //ADC값의 high값을 사용함 
+    else; 
     
+    if(sam_num == num_sample) 
+    {
+        mux++;
+        sam_num=0;
+        d_flag=1;
+    }
+        
     if(mux > 7) mux = 4;    // PSD : PF5, 6, 7
     ADMUX = mux | 0x60;  
     ADCSRA |= 0x40;
@@ -201,7 +207,7 @@ void read_adc(unsigned char adc_input)
 }
 */
 
-// About PSD
+// ************************************** About PSD *************************************************
 // Side distance mean
 void mean_dist(void)
 {
@@ -217,14 +223,14 @@ void mean_dist(void)
         dist_sum[psd_num] = 0;
     } 
     d_flag=0;
-    delay_ms(10);                 
+    //delay_ms(10);                 
 }
 //PSD test
 void PSD_test(void)
 {
     unsigned char m = 0; 
-    //lcd_clear();
     delay_ms(300); 
+    
     while(Middle_switch_off) 
     {
         mean_dist();
@@ -232,7 +238,7 @@ void PSD_test(void)
         lcd_clear();
         if(Left_switch_on) m++;
         if(Right_switch_on) m--;  
-        if(m>3)  m = 0;
+        if(m>2)  m = 0;
         
         lcd_clear();
         lcd_gotoxy(0, 0);
@@ -246,37 +252,7 @@ void PSD_test(void)
         sprintf(lcd_data, "%d", dist_mean[m]);
         lcd_puts(lcd_data);
                     
-        delay_ms(200);    
-    }
-}
-
-void sensor_test(void)
-{
-    unsigned char m = 4; 
-    //lcd_clear();
-    delay_ms(300); 
-    while(Middle_switch_off) 
-    {
-        mean_dist();
-        
-        lcd_clear();
-        //if(Left_switch_on) m++;
-        //if(Right_switch_on) m--;  
-        //if(m>2)  m = 0;
-        
-        lcd_clear();
-        lcd_gotoxy(0, 0);
-        lcd_putsf("Testing"); 
-                    
-        lcd_gotoxy(0, 1);
-        sprintf(lcd_data, "%d : ", m);
-        lcd_puts(lcd_data);
-         
-        lcd_gotoxy(5, 1);
-        sprintf(lcd_data, "%d", adc_data[m]);
-        lcd_puts(lcd_data);
-                    
-        delay_ms(200);    
+        delay_ms(100);    
     }
 }
 
@@ -324,6 +300,73 @@ void PSD_tuning()
     }   
 }
 
+// ************************************* About cds *******************************************************
+void mean_cds(void)
+{
+    unsigned char num = 0; // counting variable for function 
+    while(!d_flag);
+    for(num = 0; num < num_sample; num++)
+        cds_sum += cds_data[num];
+            
+    cds_mean = cds_sum/num_sample; 
+    cds_sum = 0; 
+    
+    d_flag=0;
+    //delay_ms(10);                 
+}
+
+void cds_test(void)
+{
+    delay_ms(300);   
+    
+    while(Middle_switch_off) 
+    {
+        mean_cds();
+        
+        lcd_clear();
+        lcd_gotoxy(0, 0);
+        lcd_putsf("Testing"); 
+                    
+        lcd_gotoxy(0, 1);
+        sprintf(lcd_data, "%d", cds_data);
+        lcd_puts(lcd_data);
+                    
+        delay_ms(200);    
+    }
+}
+
+//cds tuning
+void cds_tuning()
+{ 
+    delay_ms(500);
+    
+    while(Middle_switch_off)
+    { 
+        mean_cds();
+        
+        lcd_clear();
+        lcd_gotoxy(0, 0);
+        lcd_putsf("MAX");
+            
+        lcd_gotoxy(5, 0);
+        lcd_putsf("min");
+            
+        lcd_gotoxy(0, 1);
+        sprintf(lcd_data, "%d", cds_max);
+        lcd_puts(lcd_data);  
+            
+        lcd_gotoxy(5, 1);
+        sprintf(lcd_data, "%d", cds_min);
+        lcd_puts(lcd_data);  
+        
+        if(cds_mean < cds_min) cds_min = cds_mean;
+        if(cds_mean > cds_max) cds_max = cds_mean;  
+        
+        delay_ms(100);
+    }   
+}
+
+// *********************************** About Motor **********************************************
 void initiation()
 {
     //타이머 관련 초기화
@@ -334,7 +377,6 @@ void initiation()
     Motor_on;
 } 
 
-//About Motor
 void motor_off()
 {
     TableIndexTarget = 0; 
@@ -361,14 +403,15 @@ void motor_test(void)
     while(Middle_switch_off)
     {  
         PORTA = 0x01;
-        delay_ms(50);       
+        if(step > 2000) break;
+        if(cds_mean < cds_min+10)   break;      
     }; 
     
     motor_off(); 
     PORTA=0x00;
 }
 
-// About Running
+//*************************************** About Running ***************************************************************
 // Update position
 void update_position()
 {    
@@ -430,7 +473,7 @@ void check_angle()
         lcd_gotoxy(0, 0);
         lcd_putsf("Angle");
         lcd_gotoxy(0, 1);
-        sprintf(lcd_data, "%d", degree_factor-100); 
+        sprintf(lcd_data, "%d", dir*(degree_factor-100)); 
         //sprintf(lcd_data, "%d", detach);
         lcd_puts(lcd_data);                  
         delay_ms(500);  
@@ -444,7 +487,7 @@ void update_PID(void)
     // P-control
     //temp = (signed long)Pgain * degree_factor;  
     //temp = (signed long)(Pgain * (degree_factor-100) * (25/15));
-    temp = (signed long)(Pgain * (degree_factor-100));
+    temp = (signed long)(Pgain * dir * (degree_factor-100));
     
     // 모터드라이버 특성??
     if(temp > 1111) temp = 1111;                   
@@ -527,6 +570,7 @@ void Speed_up(void)
     }
 }
 
+// ********************************************* main ******************************************************************
 void main(void)
 {
 // Declare your local variables here
@@ -680,60 +724,57 @@ while (1)
             case 1:
                     lcd_clear();
                     lcd_gotoxy(0, 0);
-                    lcd_putsf("2.Tuning");  
-                    if(Middle_switch_on)    PSD_tuning();                      
+                    lcd_putsf("2.CDS");
+                    lcd_gotoxy(0, 1);  
+                    sprintf(lcd_data, "%d", cds_data);
+                    lcd_puts(lcd_data);
+                    if(Middle_switch_on)    cds_test();    
                     delay_ms(50); 
                     break; 
                     
             case 2:
+                    
                     lcd_clear();
                     lcd_gotoxy(0, 0);
-                    lcd_putsf("3.Motor_test");  
-                    if(Middle_switch_on)    motor_test();    
+                    lcd_putsf("3.PSD Tuning");  
+                    if(Middle_switch_on)    PSD_tuning();                      
                     delay_ms(50); 
                     break;  
                     
             case 3:
                     lcd_clear();
                     lcd_gotoxy(0, 0);
-                    lcd_putsf("4.Speed"); 
-                    
-                    lcd_gotoxy(0, 1);
-                    sprintf(lcd_data, "%d", SearchTableIndex);
-                    lcd_puts(lcd_data); 
-                    if(Middle_switch_on)    Speed_up();    
+                    lcd_putsf("4.cds Tuning");  
+                    if(Middle_switch_on)    cds_tuning();                      
                     delay_ms(50); 
-                    break;  
+                    break; 
+                     
                     
             case 4:
                     lcd_clear();
                     lcd_gotoxy(0, 0);
-                    lcd_putsf("5.Cos");  
-                    if(Middle_switch_on)    check_angle();    
+                    lcd_putsf("5.Motor_test");  
+                    if(Middle_switch_on)    motor_test();    
                     delay_ms(50); 
-                    break; 
+                    break;
                     
              case 5:
                     lcd_clear();
                     lcd_gotoxy(0, 0);
-                    lcd_putsf("6.Navigate");  
-                    if(Middle_switch_on)    navigate();    
+                    lcd_putsf("6.Cos");  
+                    if(Middle_switch_on)    check_angle();    
                     delay_ms(50); 
-                    break;  
+                    break; 
                     
              case 6:
                     lcd_clear();
                     lcd_gotoxy(0, 0);
-                    lcd_putsf("8.Sensor");  
-                    sprintf(lcd_data, "%d", adc_data[4]);
-                    lcd_puts(lcd_data);
-                    if(Middle_switch_on)    sensor_test();    
+                    lcd_putsf("7.Navigate");  
+                    if(Middle_switch_on)    navigate();    
                     delay_ms(50); 
-                    break; 
-                    
-                                                    
+                    break;                                   
          }
-         delay_ms(100);   
+         delay_ms(250);   
       }
     
 }
