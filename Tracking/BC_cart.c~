@@ -1,0 +1,743 @@
+/*****************************************************
+This program was produced by the
+CodeWizardAVR V2.05.0 Professional
+Automatic Program Generator
+� Copyright 1998-2010 Pavel Haiduc, HP InfoTech s.r.l.
+http://www.hpinfotech.com
+
+Project : BC cart
+Version : 2.0.0
+Date    : 2017-11-09
+Author  : Mrjohd
+Company : Univ. Chungnam
+Comments: HOLY FUCKING SHIT
+
+
+Chip type               : ATmega128
+Program type            : Application
+AVR Core Clock frequency: 16.000000 MHz
+Memory model            : Small
+External RAM size       : 0
+Data Stack size         : 1024
+*****************************************************/
+
+#include <mega128.h>
+#include <delay.h>
+#include <stdio.h>
+#include <math.h> // LUT 만들것!!!
+#include "AccTable.h"
+
+// Alphanumeric LCD Module functions
+//#include <alcd.h>
+#include <lcd.h>
+#asm
+ .equ __lcd_port = 0x12 //PORTD 8
+#endasm
+// About ADC
+#define ADC_VREF_TYPE 0x60
+//About Switch
+#define Left_switch_on    (!PINE.4)
+#define Middle_switch_on  (!PINE.5)
+#define Right_switch_on   (!PINE.6)
+#define Left_switch_off   (PINE.4)
+#define Middle_switch_off (PINE.5)
+#define Right_switch_off  (PINE.6)
+
+//About Motor
+#define Motor_on  ETIMSK = 0x10, TIMSK = 0x10 
+#define Motor_off ETIMSK = 0x00, TIMSK = 0x00
+
+// ****** Declare your global variables here  ******
+unsigned char h = 0; // counting variable for ADC interrupt
+unsigned char sam_num = 0; // counting variable for ADC interrupt
+unsigned char i = 0; // counting variable for function
+unsigned char j = 0; // counting variable for function
+// LCD
+unsigned char lcd_data[40];   
+ 
+//About position                                        
+signed int position = 0;
+signed int position_array[8] = {0, -25, -15, -5, 5, 15, 25, 0}; //position이 반대인 경우 이 배열을 바꾸세요  
+unsigned char Pgain=42;
+
+// Motor                               
+unsigned char RMotorPhase[8] = {0x90, 0x80, 0xa0, 0x20, 0x60, 0x40, 0x50, 0x10};
+
+unsigned char LMotorPhase[8] = {0x01, 0x05, 0x04, 0x06, 0x02, 0x0A, 0x08, 0x09};
+
+unsigned char RPhaseIndex = 0;
+unsigned char LPhaseIndex = 0;
+signed long  RaccTableIndex = 0;
+signed long  LaccTableIndex = 0;
+signed long  SearchTableIndex = 1100;
+signed long  TableIndexTarget = 1100;
+signed long  OCRr = 65535;
+signed long  OCRl = 65535;
+signed long temp = 0;
+signed long  templ=0;   
+signed long  tempr=0;
+unsigned char stop_flag = 0;
+signed int  denominator = 0;
+unsigned char step = 0;
+unsigned char minustop = 3;
+
+//About Control flag
+unsigned char Timer_flag = 1;
+
+// ADC
+unsigned char adc_data[4] = {0};
+unsigned char dist_data[3][100] = {0}; //adc변환 이후 PSD값이 저장되는 배열
+unsigned int dist_sum[3]={0}; 
+unsigned char dist_mean[3]={0};
+unsigned char mux = 4;
+
+// * PSD
+unsigned char d_flag = 0;
+unsigned char dist_max[3] = {0, 0, 0}; //tuning에서 최대값 및 최소값을 넣기 위한 배열
+unsigned char dist_min[3] = {255, 255, 255};
+unsigned char num_sample = 100;
+
+// Driving
+unsigned char leave_flag = 0; 
+unsigned char approach = 0;
+unsigned char detach = 0;
+//unsigned char delta = 0;
+unsigned long degree_factor = 0; // 꺾인 각도 판단
+unsigned long head_reach = 0; 
+unsigned long distance_Max;  // PSD값 & 실제거리는 반비례
+unsigned long distance_min;
+signed int dir = 0;
+unsigned char mode = 0;
+
+// Timer1 output compare A interrupt service routine
+interrupt [TIM1_COMPA] void timer1_compa_isr(void)
+{
+    // Place your code here 
+    RPhaseIndex++;
+    RPhaseIndex &= 0x07;      
+         
+    if(TableIndexTarget > RaccTableIndex) RaccTableIndex++;
+    if(TableIndexTarget < RaccTableIndex) //RaccTableIndex--; 
+    {
+        if(stop_flag == 1) RaccTableIndex -= minustop;
+        else RaccTableIndex--;
+    } 
+    
+    if(RaccTableIndex <= 0) RaccTableIndex = 0;      
+    
+    if(!mode)    OCRr = table[RaccTableIndex]; // Motor TEST mode
+    if(mode)     OCRr = tempr;   // Motor running mode
+    OCR1AH = OCRr >> 8;
+    OCR1AL = OCRr;
+    
+    PORTC = RMotorPhase[RPhaseIndex] | LMotorPhase[LPhaseIndex];
+    
+    step++;
+
+}
+
+// Timer3 output compare A interrupt service routine
+interrupt [TIM3_COMPA] void timer3_compa_isr(void)
+{
+    // Place your code here  
+    LPhaseIndex++;
+    LPhaseIndex &= 0x07;  
+    
+    if(TableIndexTarget > LaccTableIndex) LaccTableIndex++;
+    if(TableIndexTarget < LaccTableIndex) //LaccTableIndex--;
+    {
+        if(stop_flag == 1) LaccTableIndex -= minustop;
+        else LaccTableIndex--;
+    }      
+    
+    if(LaccTableIndex <= 0) LaccTableIndex = 0;  
+    
+    if(!mode)    OCRl = table[LaccTableIndex]; // Motor TEST mode   
+    if(mode)     OCRl = templ;   // Motor running mode
+    OCR3AH = OCRl >> 8;
+    OCR3AL = OCRl;
+    PORTC = RMotorPhase[RPhaseIndex] | LMotorPhase[LPhaseIndex];
+    
+    step++;
+}
+
+// ADC interrupt service routine
+interrupt [ADC_INT] void adc_isr(void)
+{  
+
+    // Read the AD conversion result   
+    for (h = 0; h<=6; h++);   
+       
+    if(mux>4)
+    {   
+        dist_data[mux-5][sam_num] = ADCH; //ADC값의 high값을 사용함 
+        sam_num++; 
+        if(sam_num == num_sample) 
+        {
+            mux++;
+            sam_num=0;
+            d_flag=1;
+        }
+    }
+    else adc_data[mux] = ADCH;   
+    
+    if(mux > 7) mux = 4;    // PSD : PF5, 6, 7
+    ADMUX = mux | 0x60;  
+    ADCSRA |= 0x40;
+}
+/*
+// Read the AD conversion result
+void read_adc(unsigned char adc_input)
+{
+    ADMUX = adc_input |(ADC_VREF_TYPE & 0xff);  // ADMUX = 0x60, ADC 좌측정렬
+    // Delay needed for the stabilization of the ADC input voltage
+    delay_us(10);
+    // Start the AD conversion
+    ADCSRA|=0x40;       // ADSC 비트 set, 변환시작                         
+    // Wait for the AD conversion to complete
+    while ((ADCSRA & 0x10)==0);  // ADIF 비트가 0일동안(AD변환 중)대기
+    ADCSRA|=0x10;                // ADIF 비트 set
+    adc_data[adc_input] = ADCH;
+}
+*/
+
+// About PSD
+// Side distance mean
+void mean_dist(void)
+{
+    unsigned char psd_num = 0; // counting variable for function
+    unsigned char num = 0; // counting variable for function 
+    while(!d_flag);
+    for(psd_num = 0; psd_num < 3; psd_num++)
+    {
+        for(num = 0; num < num_sample; num++)
+            dist_sum[psd_num] += dist_data[psd_num][num];
+            
+        dist_mean[psd_num] = dist_sum[psd_num]/num_sample; 
+        dist_sum[psd_num] = 0;
+    } 
+    d_flag=0;
+    delay_ms(10);                 
+}
+//PSD test
+void PSD_test(void)
+{
+    unsigned char m = 0; 
+    //lcd_clear();
+    delay_ms(300); 
+    while(Middle_switch_off) 
+    {
+        mean_dist();
+        
+        lcd_clear();
+        if(Left_switch_on) m++;
+        if(Right_switch_on) m--;  
+        if(m>3)  m = 0;
+        
+        lcd_clear();
+        lcd_gotoxy(0, 0);
+        lcd_putsf("Testing"); 
+                    
+        lcd_gotoxy(0, 1);
+        sprintf(lcd_data, "%d : ", m);
+        lcd_puts(lcd_data);
+         
+        lcd_gotoxy(5, 1);
+        sprintf(lcd_data, "%d", dist_mean[m]);
+        lcd_puts(lcd_data);
+                    
+        delay_ms(200);    
+    }
+}
+
+void sensor_test(void)
+{
+    unsigned char m = 4; 
+    //lcd_clear();
+    delay_ms(300); 
+    while(Middle_switch_off) 
+    {
+        mean_dist();
+        
+        lcd_clear();
+        //if(Left_switch_on) m++;
+        //if(Right_switch_on) m--;  
+        //if(m>2)  m = 0;
+        
+        lcd_clear();
+        lcd_gotoxy(0, 0);
+        lcd_putsf("Testing"); 
+                    
+        lcd_gotoxy(0, 1);
+        sprintf(lcd_data, "%d : ", m);
+        lcd_puts(lcd_data);
+         
+        lcd_gotoxy(5, 1);
+        sprintf(lcd_data, "%d", adc_data[m]);
+        lcd_puts(lcd_data);
+                    
+        delay_ms(200);    
+    }
+}
+
+//PSD tuning
+void PSD_tuning()
+{
+    unsigned char psd = 0;  
+    unsigned char mode = 0;
+     
+    delay_ms(500);
+    
+    while(Middle_switch_off)
+    { 
+        mean_dist();
+        
+        lcd_clear();
+        if(Left_switch_on) mode++;
+        if(Right_switch_on) mode--;  
+        if(mode>3)  mode = 0;
+         
+        lcd_gotoxy(0, 0);
+        sprintf(lcd_data, "%d", mode);
+        lcd_puts(lcd_data);
+              
+        lcd_gotoxy(1, 0);
+        lcd_putsf("MAX");
+            
+        lcd_gotoxy(5, 0);
+        lcd_putsf("min");
+            
+        lcd_gotoxy(1, 1);
+        sprintf(lcd_data, "%d", dist_max[mode]);
+        lcd_puts(lcd_data);  
+            
+        lcd_gotoxy(5, 1);
+        sprintf(lcd_data, "%d", dist_min[mode]);
+        lcd_puts(lcd_data);  
+        
+        if(dist_mean[psd] < dist_min[psd]) dist_min[psd] = dist_mean[psd];
+        if(dist_mean[psd] > dist_max[psd]) dist_max[psd] = dist_mean[psd];  
+        
+        delay_ms(100);
+        psd++;
+        if(psd > 2) psd=0;
+    }   
+}
+
+void initiation()
+{
+    //타이머 관련 초기화
+    OCRr = 65535;
+    OCRl = 65535;
+    // Step initiation
+    step = 0;
+    Motor_on;
+} 
+
+//About Motor
+void motor_off()
+{
+    TableIndexTarget = 0; 
+    stop_flag = 1; 
+    while((LaccTableIndex>0) || (RaccTableIndex>0))
+    {
+        TableIndexTarget = 0;
+    }
+    stop_flag = 0; 
+    Motor_off;
+    
+    PORTC = 0x00; 
+    TableIndexTarget = SearchTableIndex;
+}
+
+void motor_test(void)
+{  
+    lcd_clear();
+    delay_ms(500);
+    lcd_gotoxy(0, 0);
+    lcd_putsf("TESTing");
+    
+    initiation();
+    while(Middle_switch_off)
+    {  
+        PORTA = 0x01;
+        delay_ms(50);       
+    }; 
+    
+    motor_off(); 
+    PORTA=0x00;
+}
+
+// About Running
+// Update position
+void update_position()
+{    
+    distance_Max = (10000/dist_min[1]);  // PSD값 & 실제거리는 반비례
+    distance_min = (10000/dist_max[1]); 
+    //mean_dist();
+    // 코스 이탈 판단  
+    if(dist_mean[1] < dist_min[1] || dist_mean[1] > dist_max[1]) 
+        leave_flag = 1;
+        
+    else
+    {
+        // 정상궤도 운행
+        detach = 0;
+        approach = 0;
+        leave_flag = 0; 
+        //degree_factor = 0;
+    }
+ 
+    if(leave_flag) 
+    {
+        // ********** Degree of head ********** 
+        degree_factor = (unsigned long)(100*(2*dist_mean[0])/(dist_min[0]+dist_max[0]));   
+        if(degree_factor > 100) degree_factor = 100; 
+        head_reach = (unsigned long)(100*degree_factor/dist_mean[1]);  
+        
+        // ******** Right/Left posiotion ********
+        // Detaching from wall
+        if(head_reach > distance_Max)
+        {                                                                                                                                                                                                                                                                          
+            detach = 1; 
+            approach = 0;
+            //delta = dist_min[0] - dist_mean[0];    
+        } 
+            
+        // Approaching wall
+        if(head_reach < distance_min)
+        {
+            approach = 1; 
+            detach = 0;
+            //delta = dist_mean[0] - dist_max[0];    
+        } 
+    } 
+    if(detach)  dir = +1;
+    else if(approach) dir = -1; 
+    else;
+    // 결과 : degree_factor(1000*cos(theta)), detach, approach(direction)
+             
+}
+
+void check_angle()
+{
+    delay_ms(100);
+    while(Middle_switch_off)
+    {
+        mean_dist();
+        update_position(); 
+        lcd_clear();
+        lcd_gotoxy(0, 0);
+        lcd_putsf("Angle");
+        lcd_gotoxy(0, 1);
+        sprintf(lcd_data, "%d", degree_factor-100); 
+        //sprintf(lcd_data, "%d", detach);
+        lcd_puts(lcd_data);                  
+        delay_ms(500);  
+    }  
+}
+
+void update_PID(void)
+{
+    //signed long temp;   
+    
+    // P-control
+    //temp = (signed long)Pgain * degree_factor;  
+    //temp = (signed long)(Pgain * (degree_factor-100) * (25/15));
+    temp = (signed long)(Pgain * (degree_factor-100));
+    
+    // 모터드라이버 특성??
+    if(temp > 1111) temp = 1111;                   
+    else if(temp < -1111) temp = -1111;
+    temp = temp * 9;
+    denominator = temp;
+    
+    // 모터속도 결정
+    tempr = (((unsigned long)table[RaccTableIndex]) * 10000 / (denominator+10000));
+    if(tempr>65534) tempr = 65534;
+	if(tempr<1) tempr = 1;
+    
+    templ = (((unsigned long)table[LaccTableIndex]) * 10000 / (-denominator+10000));
+    if(templ>65534) templ = 65534;
+    if(templ<1) templ = 1;   
+}   
+
+void check_temp()
+{
+    delay_ms(100);
+    while(Middle_switch_off)
+    {
+        initiation();
+        mean_dist();
+        update_position();
+        update_PID();
+         
+        lcd_clear();
+        lcd_gotoxy(0, 0);
+        lcd_putsf("temp");
+        lcd_gotoxy(0, 1);
+        sprintf(lcd_data, "%d", tempr); 
+        lcd_puts(lcd_data);                  
+        delay_ms(500); 
+        Motor_off; 
+    }  
+}
+
+//About race
+void navigate(void)
+{  
+    lcd_clear();
+    lcd_gotoxy(0, 0);
+    lcd_putsf("GO!!"); 
+    delay_ms(500);
+    mode = 1;
+    if(Middle_switch_off)
+    {
+        initiation();    
+
+        while(Middle_switch_off)
+        {  
+            mean_dist();
+            update_position();
+            update_PID(); 
+        }
+        motor_off();
+    } 
+    mode = 0;
+}
+
+void Speed_up(void)
+{
+    delay_ms(100);
+    while(Middle_switch_off)
+    {
+        if(Left_switch_on) SearchTableIndex+=10;
+        if(Right_switch_on) SearchTableIndex-=10;
+             
+        lcd_clear();
+        lcd_gotoxy(0,0);
+        lcd_putsf("Speed!!");
+        
+        lcd_gotoxy(0, 1);
+        sprintf(lcd_data, "%d", SearchTableIndex);
+        lcd_puts(lcd_data);
+        delay_ms(100);
+    }
+}
+
+void main(void)
+{
+// Declare your local variables here
+// menu
+unsigned char menu = 0;
+unsigned char menu_Max = 7;
+
+
+PORTA=0x00;
+DDRA=0xFF;
+ 
+PORTB=0x00;
+DDRB=0x00;
+
+PORTC=0x00;
+DDRC=0xFF;
+
+PORTD=0x00;
+DDRD=0xFF;
+
+PORTE=0x00;
+DDRE=0x8F;
+
+PORTF=0x00;
+DDRF=0x00;
+
+PORTG=0x00;
+DDRG=0x00;
+/*
+// Timer/Counter 0 initialization
+// Clock source: System Clock
+// Clock value: Timer 0 Stopped
+// Mode: Normal top=0xFF
+// OC0 output: Disconnected
+ASSR=0x00;
+TCCR0=0x00;
+TCNT0=0x00;
+OCR0=0x00;
+*/
+// Timer/Counter 1 initialization
+// Clock source: System Clock
+// Clock value: 2000.000 kHz
+// Mode: CTC top=OCR1A
+// OC1A output: Discon.
+// OC1B output: Discon.
+// OC1C output: Discon.
+// Noise Canceler: Off
+// Input Capture on Falling Edge
+// Timer1 Overflow Interrupt: On
+// Input Capture Interrupt: Off
+// Compare A Match Interrupt: On
+// Compare B Match Interrupt: Off
+// Compare C Match Interrupt: Off
+TCCR1A=0x00;
+TCCR1B=0x09;
+TCNT1H=0x00;
+TCNT1L=0x00;
+ICR1H=0x00;
+ICR1L=0x00;
+OCR1AH=0x00;
+OCR1AL=0x00;
+OCR1BH=0x00;
+OCR1BL=0x00;
+OCR1CH=0x00;
+OCR1CL=0x00;
+/*
+// Timer/Counter 2 initialization
+// Clock source: System Clock
+// Clock value: Timer2 Stopped
+// Mode: Normal top=0xFF
+// OC2 output: Disconnected
+TCCR2=0x00;
+TCNT2=0x00;
+OCR2=0x00;
+*/
+// Timer/Counter 3 initialization
+// Clock source: System Clock
+// Clock value: 2000.000 kHz
+// Mode: CTC top=OCR3A
+// OC3A output: Discon.
+// OC3B output: Discon.
+// OC3C output: Discon.
+// Noise Canceler: Off
+// Input Capture on Falling Edge
+// Timer3 Overflow Interrupt: On
+// Input Capture Interrupt: Off
+// Compare A Match Interrupt: On
+// Compare B Match Interrupt: Off
+// Compare C Match Interrupt: Off
+TCCR3A=0x00;
+TCCR3B=0x09;
+TCNT3H=0x00;
+TCNT3L=0x00;
+ICR3H=0x00;
+ICR3L=0x00;
+OCR3AH=0x00;
+OCR3AL=0x00;
+OCR3BH=0x00;
+OCR3BL=0x00;
+OCR3CH=0x00;
+OCR3CL=0x00;
+
+// Timer(s)/Counter(s) Interrupt(s) initialization
+//TIMSK=0x10;
+
+//ETIMSK=0x10;
+
+// ADC initialization
+// ADC Clock frequency: 1000.000 kHz
+// ADC Voltage Reference: AREF pin
+ADMUX=0x25;
+ADCSRA=0xCF;
+
+// Alphanumeric LCD initialization
+// Connections specified in the
+// Project|Configure|C Compiler|Libraries|Alphanumeric LCD menu:
+// RS - PORTD Bit 0
+// RD - PORTD Bit 1
+// EN - PORTD Bit 2
+// D4 - PORTD Bit 4
+// D5 - PORTD Bit 5
+// D6 - PORTD Bit 6
+// D7 - PORTD Bit 7
+// Characters/line: 8
+lcd_init(8);
+
+// Global enable interrupts
+#asm("sei")
+SREG = 0x80;
+
+while (1)
+      { 
+        if(Left_switch_on) menu++;
+        if(Right_switch_on) menu--;    
+        if(menu > menu_Max)    menu = 0;
+        if(menu == 0)
+            if(Right_switch_on) menu = menu_Max;  
+            
+        //Distance averaging...
+        //mean_dist();
+        switch(menu)
+        { 
+            case 0:
+                    lcd_clear();
+                    lcd_gotoxy(0, 0);
+                    lcd_putsf("1.PSD TEST"); 
+                    if(Middle_switch_on) PSD_test(); 
+                    delay_ms(50);  
+                    break;
+                    
+            case 1:
+                    lcd_clear();
+                    lcd_gotoxy(0, 0);
+                    lcd_putsf("2.Tuning");  
+                    if(Middle_switch_on)    PSD_tuning();                      
+                    delay_ms(50); 
+                    break; 
+                    
+            case 2:
+                    lcd_clear();
+                    lcd_gotoxy(0, 0);
+                    lcd_putsf("3.Motor_test");  
+                    if(Middle_switch_on)    motor_test();    
+                    delay_ms(50); 
+                    break;  
+                    
+            case 3:
+                    lcd_clear();
+                    lcd_gotoxy(0, 0);
+                    lcd_putsf("4.Speed"); 
+                    
+                    lcd_gotoxy(0, 1);
+                    sprintf(lcd_data, "%d", SearchTableIndex);
+                    lcd_puts(lcd_data); 
+                    if(Middle_switch_on)    Speed_up();    
+                    delay_ms(50); 
+                    break;  
+                    
+            case 4:
+                    lcd_clear();
+                    lcd_gotoxy(0, 0);
+                    lcd_putsf("5.Cos");  
+                    if(Middle_switch_on)    check_angle();    
+                    delay_ms(50); 
+                    break; 
+                    
+             case 5:
+                    lcd_clear();
+                    lcd_gotoxy(0, 0);
+                    lcd_putsf("6.Navigate");  
+                    if(Middle_switch_on)    navigate();    
+                    delay_ms(50); 
+                    break;  
+                    
+             case 6:
+                    lcd_clear();
+                    lcd_gotoxy(0, 0);
+                    lcd_putsf("7.TEMP");  
+                    if(Middle_switch_on)    check_temp();    
+                    delay_ms(50); 
+                    break; 
+                    
+             case 7:
+                    lcd_clear();
+                    lcd_gotoxy(0, 0);
+                    lcd_putsf("8.Sensor");  
+                    sprintf(lcd_data, "%d", adc_data[4]);
+                    lcd_puts(lcd_data);
+                    if(Middle_switch_on)    sensor_test();    
+                    delay_ms(50); 
+                    break;                                
+         }
+         delay_ms(100);   
+      }
+    
+}

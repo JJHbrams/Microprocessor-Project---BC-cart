@@ -1,0 +1,58 @@
+RAM Allocation
+Variable                                                          Address   Size
+--------------------------------------------------------------------------------
+lcd_data                                                          0x0500      40
+RMotorPhase                                                       0x0528       8
+LMotorPhase                                                       0x0530       8
+RaccTableIndex                                                    0x0538       4
+LaccTableIndex                                                    0x053C       4
+SearchTableIndex                                                  0x0540       4
+TableIndexTarget                                                  0x0544       4
+OCRr                                                              0x0548       4
+OCRl                                                              0x054C       4
+temp                                                              0x0550       4
+templ                                                             0x0554       4
+tempr                                                             0x0558       4
+denominator                                                       0x055C       2
+step                                                              0x055E       1
+minustop                                                          0x055F       1
+adc_data                                                          0x0560       4
+dist_data                                                         0x0564     300
+dist_sum                                                          0x0690       6
+dist_mean                                                         0x0696       3
+mux                                                               0x0699       1
+d_flag                                                            0x069A       1
+dist_max                                                          0x069B       3
+dist_min                                                          0x069E       3
+num_sample                                                        0x06A1       1
+leave_flag                                                        0x06A2       1
+approach                                                          0x06A3       1
+detach                                                            0x06A4       1
+degree_factor                                                     0x06A5       4
+head_reach                                                        0x06A9       4
+distance_Max                                                      0x06AD       4
+distance_min                                                      0x06B1       4
+dir                                                               0x06B5       2
+mode                                                              0x06B7       1
+_base_y                                                           0x06B8       4
+_lcd_x                                                            0x06BC       1
+_lcd_y                                                            0x06BD       1
+_lcd_maxx                                                         0x06BE       1
+_seed                                                             0x06BF       4
+
+EEPROM Allocation
+Variable                                                          Address   Size
+--------------------------------------------------------------------------------
+
+Register Allocation
+Variable                                                          Register  Size
+--------------------------------------------------------------------------------
+h                                                                 R5           1
+sam_num                                                           R4           1
+i                                                                 R7           1
+j                                                                 R6           1
+position                                                          R8,R9        2
+Pgain                                                             R11          1
+RPhaseIndex                                                       R10          1
+LPhaseIndex                                                       R13          1
+stop_flag                                                         R12          1
