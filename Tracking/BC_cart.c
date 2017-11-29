@@ -6,7 +6,7 @@ Automatic Program Generator
 http://www.hpinfotech.com
 
 Project : BC cart
-Version : 2.1.0
+Version : 2.1.2
 Date    : 2017-11-29
 Author  : Mrjohd
 Company : Univ. Chungnam
@@ -176,8 +176,8 @@ interrupt [ADC_INT] void adc_isr(void)
     // Read the AD conversion result   
     for (h = 0; h<=6; h++);   
     sam_num++;   
-    if(mux>4)   dist_data[mux-5][sam_num] = ADCH; 
-    else if(mux==4) cds_data[sam_num] = ADCH;  //ADC값의 high값을 사용함 
+    if(mux>4) dist_data[mux-5][sam_num] = ADCH; 
+    else if(mux == 4) cds_data[sam_num] = ADCH;  //ADC값의 high값을 사용함 
     else; 
     
     if(sam_num == num_sample) 
@@ -223,7 +223,7 @@ void mean_dist(void)
         dist_sum[psd_num] = 0;
     } 
     d_flag=0;
-    //delay_ms(10);                 
+    delay_ms(10);                 
 }
 //PSD test
 void PSD_test(void)
@@ -259,7 +259,7 @@ void PSD_test(void)
 //PSD tuning
 void PSD_tuning()
 {
-    unsigned char psd = 0;  
+    unsigned char psd = 1;  
     unsigned char mode = 0;
      
     delay_ms(500);
@@ -271,7 +271,7 @@ void PSD_tuning()
         lcd_clear();
         if(Left_switch_on) mode++;
         if(Right_switch_on) mode--;  
-        if(mode>3)  mode = 0;
+        if(mode>2)  mode = 0;
          
         lcd_gotoxy(0, 0);
         sprintf(lcd_data, "%d", mode);
@@ -294,7 +294,7 @@ void PSD_tuning()
         if(dist_mean[psd] < dist_min[psd]) dist_min[psd] = dist_mean[psd];
         if(dist_mean[psd] > dist_max[psd]) dist_max[psd] = dist_mean[psd];  
         
-        delay_ms(100);
+        delay_ms(300);
         psd++;
         if(psd > 2) psd=0;
     }   
@@ -312,7 +312,7 @@ void mean_cds(void)
     cds_sum = 0; 
     
     d_flag=0;
-    //delay_ms(10);                 
+    delay_ms(10);                 
 }
 
 void cds_test(void)
@@ -328,7 +328,7 @@ void cds_test(void)
         lcd_putsf("Testing"); 
                     
         lcd_gotoxy(0, 1);
-        sprintf(lcd_data, "%d", cds_data);
+        sprintf(lcd_data, "%d", cds_mean);
         lcd_puts(lcd_data);
                     
         delay_ms(200);    
@@ -473,7 +473,7 @@ void check_angle()
         lcd_gotoxy(0, 0);
         lcd_putsf("Angle");
         lcd_gotoxy(0, 1);
-        sprintf(lcd_data, "%d", dir*(degree_factor-100)); 
+        sprintf(lcd_data, "%d", dir * (degree_factor-100)); 
         //sprintf(lcd_data, "%d", detach);
         lcd_puts(lcd_data);                  
         delay_ms(500);  
@@ -505,28 +505,37 @@ void update_PID(void)
     if(templ<1) templ = 1;   
 }   
 
-/*
-void check_temp()
+void Heading()
 {
     delay_ms(100);
     while(Middle_switch_off)
     {
-        initiation();
         mean_dist();
         update_position();
-        update_PID();
          
         lcd_clear();
         lcd_gotoxy(0, 0);
-        lcd_putsf("temp");
-        lcd_gotoxy(0, 1);
-        sprintf(lcd_data, "%d", tempr); 
-        lcd_puts(lcd_data);                  
+        lcd_putsf("Head?"); 
+        if(approach)
+        {
+            lcd_gotoxy(0, 1);
+            lcd_putsf("Approach");
+        }
+        if(detach)
+        {
+            lcd_gotoxy(0, 1);
+            lcd_putsf("Detach");
+        } 
+        if(!approach && !detach)
+        {
+            lcd_gotoxy(0, 1);
+            lcd_putsf("Right");
+        }
+                          
         delay_ms(500); 
         Motor_off; 
     }  
 }
-*/
 
 //About race
 void navigate(void)
@@ -576,7 +585,7 @@ void main(void)
 // Declare your local variables here
 // menu
 unsigned char menu = 0;
-unsigned char menu_Max = 6;
+unsigned char menu_Max = 7;
 
 
 PORTA=0x00;
@@ -725,9 +734,6 @@ while (1)
                     lcd_clear();
                     lcd_gotoxy(0, 0);
                     lcd_putsf("2.CDS");
-                    lcd_gotoxy(0, 1);  
-                    sprintf(lcd_data, "%d", cds_data);
-                    lcd_puts(lcd_data);
                     if(Middle_switch_on)    cds_test();    
                     delay_ms(50); 
                     break; 
@@ -772,7 +778,15 @@ while (1)
                     lcd_putsf("7.Navigate");  
                     if(Middle_switch_on)    navigate();    
                     delay_ms(50); 
-                    break;                                   
+                    break;    
+                    
+             case 7:
+                    lcd_clear();
+                    lcd_gotoxy(0, 0);
+                    lcd_putsf("8.Head");  
+                    if(Middle_switch_on)    Heading();    
+                    delay_ms(50); 
+                    break;                                
          }
          delay_ms(250);   
       }
