@@ -6,7 +6,7 @@ Automatic Program Generator
 http://www.hpinfotech.com
 
 Project : BC cart
-Version : 2.1.3
+Version : 2.2.1
 Date    : 2017-11-29
 Author  : Mrjohd
 Company : Univ. Chungnam
@@ -20,6 +20,8 @@ Memory model            : Small
 External RAM size       : 0
 Data Stack size         : 1024
 *****************************************************/
+         //PSD0가 80인 지점에서 돌릴것
+/*****************************************************/
 
 #include <mega128.h>
 #include <delay.h>
@@ -58,8 +60,8 @@ unsigned char lcd_data[40];
 //*****************************************************************************************************************
 //About position                                        
 signed int position = 0;
-signed int position_array[8] = {0, -25, -15, -5, 5, 15, 25, 0}; //position이 반대인 경우 이 배열을 바꾸세요  
-unsigned char Pgain=42;
+//signed int position_array[8] = {0, -25, -15, -5, 5, 15, 25, 0}; //position이 반대인 경우 이 배열을 바꾸세요  
+unsigned char Pgain=60;
 //*****************************************************************************************************************
 // Motor                               
 unsigned char RMotorPhase[8] = {0x90, 0x80, 0xa0, 0x20, 0x60, 0x40, 0x50, 0x10};
@@ -192,21 +194,6 @@ interrupt [ADC_INT] void adc_isr(void)
     ADMUX = mux | 0x60;  
     ADCSRA |= 0x40;
 }
-/*
-// Read the AD conversion result
-void read_adc(unsigned char adc_input)
-{
-    ADMUX = adc_input |(ADC_VREF_TYPE & 0xff);  // ADMUX = 0x60, ADC 좌측정렬
-    // Delay needed for the stabilization of the ADC input voltage
-    delay_us(10);
-    // Start the AD conversion
-    ADCSRA|=0x40;       // ADSC 비트 set, 변환시작                         
-    // Wait for the AD conversion to complete
-    while ((ADCSRA & 0x10)==0);  // ADIF 비트가 0일동안(AD변환 중)대기
-    ADCSRA|=0x10;                // ADIF 비트 set
-    adc_data[adc_input] = ADCH;
-}
-*/
 
 // ************************************** About PSD *************************************************
 // Side distance mean
@@ -258,7 +245,7 @@ void PSD_test(void)
 }
 
 //PSD tuning
-void PSD_tuning()
+void PSD_tuning(void)
 {
     unsigned char psd = 1;  
     unsigned char mode = 0;
@@ -337,7 +324,7 @@ void cds_test(void)
 }
 
 //cds tuning
-void cds_tuning()
+void cds_tuning(void)
 { 
     delay_ms(500);
     
@@ -368,7 +355,7 @@ void cds_tuning()
 }
 
 // *********************************** About Motor **********************************************
-void initiation()
+void initiation(void)
 {
     //타이머 관련 초기화
     OCRr = 65535;
@@ -378,7 +365,7 @@ void initiation()
     Motor_on;
 } 
 
-void motor_off()
+void motor_off(void)
 {
     TableIndexTarget = 0; 
     stop_flag = 1; 
@@ -407,22 +394,18 @@ void motor_test(void)
         PORTA = 0x01;  
         mean_cds();
         lcd_clear();
-        lcd_gotoxy(0, 1);
-        sprintf(lcd_data, "%d", cds_mean);
-        lcd_puts(lcd_data); 
         
        //STOP condition
        if(step > 2000)             stop_condition = 1;
        if(cds_mean < cds_min+10)   stop_condition = 1;      
     }; 
-    
     motor_off(); 
     PORTA=0x00;
 }
 
 //*************************************** About Running ***************************************************************
 // Update position
-void update_position()
+void update_position(void)
 {    
     distance_Max = (10000/dist_min[1]);  // PSD값 & 실제거리는 반비례
     distance_min = (10000/dist_max[1]); 
@@ -443,7 +426,8 @@ void update_position()
     if(leave_flag) 
     {
         // ********** Degree of head ********** 
-        degree_factor = (unsigned long)(100*(2*dist_mean[0])/(dist_min[0]+dist_max[0]));   
+        degree_factor = (unsigned long)(100*(2*dist_mean[0])/(dist_min[0]+dist_max[0]));
+           
         if(degree_factor > 100) degree_factor = 100; 
         head_reach = (unsigned long)(100*degree_factor/dist_mean[1]);  
         
@@ -467,11 +451,11 @@ void update_position()
     if(detach)  dir = -1;
     else if(approach) dir = 1; 
     else;
-    // 결과 : degree_factor(1000*cos(theta)), detach, approach(direction)
+    // 결과 : degree_factor(100*cos(theta)), detach, approach(direction)
              
 }
 
-void check_angle()
+void check_angle(void)
 {
     delay_ms(100);
     while(Middle_switch_off)
@@ -482,8 +466,7 @@ void check_angle()
         lcd_gotoxy(0, 0);
         lcd_putsf("Angle");
         lcd_gotoxy(0, 1);
-        sprintf(lcd_data, "%d", dir * (degree_factor - 100)); 
-        //sprintf(lcd_data, "%d", detach);
+        sprintf(lcd_data, "%d", dir * (degree_factor-100)); 
         lcd_puts(lcd_data);                  
         delay_ms(500);  
     }  
@@ -495,12 +478,14 @@ void update_PID(void)
     
     // P-control
     //temp = (signed long)Pgain * degree_factor;  
-    //temp = (signed long)(Pgain * (degree_factor-100) * (25/15));
+    //temp = (signed long)(Pgain * dir * (degree_factor-100) * (25/15));
     temp = (signed long)(Pgain * dir * (degree_factor-100));
     
-    // 모터드라이버 특성??
+    // Saturation
     if(temp > 1111) temp = 1111;                   
-    else if(temp < -1111) temp = -1111;
+    else if(temp < -1111) temp = -1111; 
+    
+    // 모터드라이버 특성
     temp = temp * 9;
     denominator = temp;
     
@@ -553,42 +538,57 @@ void navigate(void)
     lcd_gotoxy(0, 0);
     lcd_putsf("GO!!"); 
     delay_ms(500);
-    mode = 1;
-    if(Middle_switch_off)
-    {
-        initiation();    
-
-        while(Middle_switch_off && !stop_condition)
-        {  
-            mean_dist();
-            mean_cds();
-            update_position();
-            update_PID();   
+    mode = 1; 
+    
+    initiation();  
+    while(Middle_switch_off && !stop_condition)
+    {  
+        mean_dist();
+        mean_cds();
+        update_position();
+        update_PID(); 
             
-            //STOP condition                                 
-            
-            if(step > 2000)             stop_condition = 1;
-            if(cds_mean < cds_min+10)   stop_condition = 1; 
-        }
-        motor_off();
-    } 
+        //STOP condition                                 
+        if(step > 2000)             stop_condition = 1;
+        if(cds_mean < cds_min+10)   stop_condition = 1; 
+    }
+    motor_off();
     mode = 0;
 }
 
-void Speed_up(void)
+void Pgain_adj(void)
 {
     delay_ms(100);
     while(Middle_switch_off)
     {
-        if(Left_switch_on) SearchTableIndex+=10;
-        if(Right_switch_on) SearchTableIndex-=10;
+        if(Left_switch_on) Pgain+=5;
+        if(Right_switch_on) Pgain-=5;
              
         lcd_clear();
         lcd_gotoxy(0,0);
-        lcd_putsf("Speed!!");
+        lcd_putsf("Pgain!!");
         
         lcd_gotoxy(0, 1);
-        sprintf(lcd_data, "%d", SearchTableIndex);
+        sprintf(lcd_data, "%d", Pgain);
+        lcd_puts(lcd_data);
+        delay_ms(100);
+    }
+}
+
+void speed_adj(void)
+{
+    delay_ms(100);
+    while(Middle_switch_off)
+    {
+        if(Left_switch_on) TableIndexTarget+=5;
+        if(Right_switch_on) TableIndexTarget-=5;
+             
+        lcd_clear();
+        lcd_gotoxy(0,0);
+        lcd_putsf("Pgain!!");
+        
+        lcd_gotoxy(0, 1);
+        sprintf(lcd_data, "%d", TableIndexTarget);
         lcd_puts(lcd_data);
         delay_ms(100);
     }
@@ -600,7 +600,7 @@ void main(void)
 // Declare your local variables here
 // menu
 unsigned char menu = 0;
-unsigned char menu_Max = 7;
+unsigned char menu_Max = 9;
 
 
 PORTA=0x00;
@@ -635,19 +635,6 @@ TCNT0=0x00;
 OCR0=0x00;
 */
 // Timer/Counter 1 initialization
-// Clock source: System Clock
-// Clock value: 2000.000 kHz
-// Mode: CTC top=OCR1A
-// OC1A output: Discon.
-// OC1B output: Discon.
-// OC1C output: Discon.
-// Noise Canceler: Off
-// Input Capture on Falling Edge
-// Timer1 Overflow Interrupt: On
-// Input Capture Interrupt: Off
-// Compare A Match Interrupt: On
-// Compare B Match Interrupt: Off
-// Compare C Match Interrupt: Off
 TCCR1A=0x00;
 TCCR1B=0x09;
 TCNT1H=0x00;
@@ -670,20 +657,6 @@ TCCR2=0x00;
 TCNT2=0x00;
 OCR2=0x00;
 */
-// Timer/Counter 3 initialization
-// Clock source: System Clock
-// Clock value: 2000.000 kHz
-// Mode: CTC top=OCR3A
-// OC3A output: Discon.
-// OC3B output: Discon.
-// OC3C output: Discon.
-// Noise Canceler: Off
-// Input Capture on Falling Edge
-// Timer3 Overflow Interrupt: On
-// Input Capture Interrupt: Off
-// Compare A Match Interrupt: On
-// Compare B Match Interrupt: Off
-// Compare C Match Interrupt: Off
 TCCR3A=0x00;
 TCCR3B=0x09;
 TCNT3H=0x00;
@@ -697,34 +670,13 @@ OCR3BL=0x00;
 OCR3CH=0x00;
 OCR3CL=0x00;
 
-// Timer(s)/Counter(s) Interrupt(s) initialization
-//TIMSK=0x10;
-
-//ETIMSK=0x10;
-
-// ADC initialization
-// ADC Clock frequency: 1000.000 kHz
-// ADC Voltage Reference: AREF pin
 ADMUX=0x25;
 ADCSRA=0xCF;
 
-// Alphanumeric LCD initialization
-// Connections specified in the
-// Project|Configure|C Compiler|Libraries|Alphanumeric LCD menu:
-// RS - PORTD Bit 0
-// RD - PORTD Bit 1
-// EN - PORTD Bit 2
-// D4 - PORTD Bit 4
-// D5 - PORTD Bit 5
-// D6 - PORTD Bit 6
-// D7 - PORTD Bit 7
-// Characters/line: 8
 lcd_init(8);
-
 // Global enable interrupts
 #asm("sei")
-SREG = 0x80;
-
+//SREG = 0x80;
 while (1)
       { 
         if(Left_switch_on) menu++;
@@ -790,16 +742,38 @@ while (1)
              case 6:
                     lcd_clear();
                     lcd_gotoxy(0, 0);
-                    lcd_putsf("7.Navigate");  
-                    if(Middle_switch_on)    navigate();    
+                    lcd_putsf("7.Head");  
+                    if(Middle_switch_on)    Heading();    
                     delay_ms(50); 
-                    break;    
+                    break;   
                     
              case 7:
                     lcd_clear();
                     lcd_gotoxy(0, 0);
-                    lcd_putsf("8.Head");  
-                    if(Middle_switch_on)    Heading();    
+                    lcd_putsf("8.Navigate");  
+                    if(Middle_switch_on)    navigate();    
+                    delay_ms(50); 
+                    break; 
+                    
+             case 8:
+                    lcd_clear();
+                    lcd_gotoxy(0, 0);
+                    lcd_putsf("9.Pgain");  
+                    lcd_gotoxy(0, 1);
+                    sprintf(lcd_data, "%d", Pgain);
+                    lcd_puts(lcd_data);
+                    if(Middle_switch_on)    Pgain_adj();    
+                    delay_ms(50); 
+                    break;
+             
+             case 9:
+                    lcd_clear();
+                    lcd_gotoxy(0, 0);
+                    lcd_putsf("10.Speed"); 
+                    lcd_gotoxy(0, 1);
+                    sprintf(lcd_data, "%d", TableIndexTarget);
+                    lcd_puts(lcd_data); 
+                    if(Middle_switch_on)    speed_adj();    
                     delay_ms(50); 
                     break;                                
          }
