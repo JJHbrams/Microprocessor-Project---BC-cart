@@ -6,7 +6,7 @@ Automatic Program Generator
 http://www.hpinfotech.com
 
 Project : BC cart
-Version : 2.1.2
+Version : 2.1.3
 Date    : 2017-11-29
 Author  : Mrjohd
 Company : Univ. Chungnam
@@ -82,6 +82,7 @@ unsigned char minustop = 3;
 
 //About Control flag
 unsigned char Timer_flag = 1;
+unsigned char stop_condition = 0;
 //*****************************************************************************************************************
 // ADC
 //unsigned char adc_data[4][100] = {0}; //adc 후 IR/압력센서/cds값이 저장됨
@@ -91,17 +92,17 @@ unsigned char d_flag = 0;
 
 // * PSD    
 unsigned char dist_data[3][100] = {0}; //adc변환 이후 PSD값이 저장되는 배열
-unsigned char dist_max[3] = {0, 0, 0}; //tuning에서 최대값 및 최소값을 넣기 위한 배열
-unsigned char dist_min[3] = {255, 255, 255};
 unsigned int dist_sum[3]={0}; 
 unsigned char dist_mean[3]={0};
+unsigned char dist_max[3] = {0, 0, 0}; //tuning에서 최대값 및 최소값을 넣기 위한 배열
+unsigned char dist_min[3] = {255, 255, 255};
 
 // * cds
 unsigned char cds_data[100] = {0}; //adc 후 cds값이 저장됨
-unsigned char cds_max = 0; //tuning에서 최대값 및 최소값을 넣기 위한 배열
-unsigned char cds_min = 255;
 unsigned int cds_sum = 0; 
 unsigned char cds_mean = 0;
+unsigned char cds_max = 0; //tuning에서 최대값 및 최소값을 넣기 위한 배열
+unsigned char cds_min = 255;
 
 //*****************************************************************************************************************
 // Position
@@ -223,7 +224,7 @@ void mean_dist(void)
         dist_sum[psd_num] = 0;
     } 
     d_flag=0;
-    delay_ms(10);                 
+    //delay_ms(10);                 
 }
 //PSD test
 void PSD_test(void)
@@ -283,7 +284,7 @@ void PSD_tuning()
         lcd_gotoxy(5, 0);
         lcd_putsf("min");
             
-        lcd_gotoxy(1, 1);
+        lcd_gotoxy(0, 1);
         sprintf(lcd_data, "%d", dist_max[mode]);
         lcd_puts(lcd_data);  
             
@@ -312,7 +313,7 @@ void mean_cds(void)
     cds_sum = 0; 
     
     d_flag=0;
-    delay_ms(10);                 
+    //delay_ms(10);                 
 }
 
 void cds_test(void)
@@ -390,6 +391,7 @@ void motor_off()
     
     PORTC = 0x00; 
     TableIndexTarget = SearchTableIndex;
+    stop_condition = 0;
 }
 
 void motor_test(void)
@@ -400,11 +402,18 @@ void motor_test(void)
     lcd_putsf("TESTing");
     
     initiation();
-    while(Middle_switch_off)
+    while(Middle_switch_off && !stop_condition)
     {  
-        PORTA = 0x01;
-        if(step > 2000) break;
-        if(cds_mean < cds_min+10)   break;      
+        PORTA = 0x01;  
+        mean_cds();
+        lcd_clear();
+        lcd_gotoxy(0, 1);
+        sprintf(lcd_data, "%d", cds_mean);
+        lcd_puts(lcd_data); 
+        
+       //STOP condition
+       if(step > 2000)             stop_condition = 1;
+       if(cds_mean < cds_min+10)   stop_condition = 1;      
     }; 
     
     motor_off(); 
@@ -455,8 +464,8 @@ void update_position()
             //delta = dist_mean[0] - dist_max[0];    
         } 
     } 
-    if(detach)  dir = +1;
-    else if(approach) dir = -1; 
+    if(detach)  dir = -1;
+    else if(approach) dir = 1; 
     else;
     // 결과 : degree_factor(1000*cos(theta)), detach, approach(direction)
              
@@ -473,7 +482,7 @@ void check_angle()
         lcd_gotoxy(0, 0);
         lcd_putsf("Angle");
         lcd_gotoxy(0, 1);
-        sprintf(lcd_data, "%d", dir * (degree_factor-100)); 
+        sprintf(lcd_data, "%d", dir * (degree_factor - 100)); 
         //sprintf(lcd_data, "%d", detach);
         lcd_puts(lcd_data);                  
         delay_ms(500);  
@@ -549,11 +558,17 @@ void navigate(void)
     {
         initiation();    
 
-        while(Middle_switch_off)
+        while(Middle_switch_off && !stop_condition)
         {  
             mean_dist();
+            mean_cds();
             update_position();
-            update_PID(); 
+            update_PID();   
+            
+            //STOP condition                                 
+            
+            if(step > 2000)             stop_condition = 1;
+            if(cds_mean < cds_min+10)   stop_condition = 1; 
         }
         motor_off();
     } 
