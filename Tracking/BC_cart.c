@@ -6,7 +6,7 @@ Automatic Program Generator
 http://www.hpinfotech.com
 
 Project : BC cart
-Version : 2.2.1
+Version : 2.3.0
 Date    : 2017-11-29
 Author  : Mrjohd
 Company : Univ. Chungnam
@@ -20,7 +20,8 @@ Memory model            : Small
 External RAM size       : 0
 Data Stack size         : 1024
 *****************************************************/
-         //PSD0가 80인 지점에서 돌릴것
+         // PSD0가 80인 지점에서 돌릴것  
+         // PSD1이 100인 지점에서 돌릴것
 /*****************************************************/
 
 #include <mega128.h>
@@ -61,17 +62,19 @@ unsigned char lcd_data[40];
 //About position                                        
 signed int position = 0;
 //signed int position_array[8] = {0, -25, -15, -5, 5, 15, 25, 0}; //position이 반대인 경우 이 배열을 바꾸세요  
-unsigned char Pgain=60;
+unsigned int Pgain=42;
 //*****************************************************************************************************************
 // Motor                               
 unsigned char RMotorPhase[8] = {0x90, 0x80, 0xa0, 0x20, 0x60, 0x40, 0x50, 0x10};
-unsigned char LMotorPhase[8] = {0x01, 0x05, 0x04, 0x06, 0x02, 0x0A, 0x08, 0x09};
+//unsigned char RMotorPhase[8] = {0x10, 0x50, 0x40, 0x60, 0x20, 0xA0, 0x80, 0x90};
+//unsigned char LMotorPhase[8] = {0x01, 0x05, 0x04, 0x06, 0x02, 0x0A, 0x08, 0x09};
+unsigned char LMotorPhase[8] = {0x09, 0x08, 0x0A, 0x02, 0x06, 0x04, 0x05, 0x01};
 unsigned char RPhaseIndex = 0;
 unsigned char LPhaseIndex = 0;
 signed long  RaccTableIndex = 0;
 signed long  LaccTableIndex = 0;
-signed long  SearchTableIndex = 1100;
-signed long  TableIndexTarget = 1100;
+signed long  SearchTableIndex = 650;
+signed long  TableIndexTarget = 650;
 signed long  OCRr = 65535;
 signed long  OCRl = 65535;
 signed long temp = 0;
@@ -89,13 +92,15 @@ unsigned char stop_condition = 0;
 // ADC
 //unsigned char adc_data[4][100] = {0}; //adc 후 IR/압력센서/cds값이 저장됨
 unsigned char mux = 4; 
-unsigned char num_sample = 100;
+unsigned char num_sample = 10;
 unsigned char d_flag = 0;
 
 // * PSD    
 unsigned char dist_data[3][100] = {0}; //adc변환 이후 PSD값이 저장되는 배열
 unsigned int dist_sum[3]={0}; 
 unsigned char dist_mean[3]={0};
+//unsigned char dist_max[3] = {0, 0, 0}; //tuning에서 최대값 및 최소값을 넣기 위한 배열
+//unsigned char dist_min[3] = {255, 255, 255};
 unsigned char dist_max[3] = {0, 0, 0}; //tuning에서 최대값 및 최소값을 넣기 위한 배열
 unsigned char dist_min[3] = {255, 255, 255};
 
@@ -114,8 +119,12 @@ unsigned char detach = 0;
 //unsigned char delta = 0;
 unsigned long degree_factor = 0; // 꺾인 각도 판단
 unsigned long head_reach = 0; 
-unsigned long distance_Max;  // PSD값 & 실제거리는 반비례
-unsigned long distance_min;
+unsigned long distance_Max0;  // PSD값 & 실제거리는 반비례
+unsigned long distance_min0;
+unsigned long distance_Max1;  
+unsigned long distance_min1;
+unsigned long distance_now0;
+unsigned long distance_now1;
 signed int dir = 0;
 unsigned char mode = 0;
 
@@ -128,7 +137,7 @@ interrupt [TIM1_COMPA] void timer1_compa_isr(void)
     RPhaseIndex &= 0x07;      
          
     if(TableIndexTarget > RaccTableIndex) RaccTableIndex++;
-    if(TableIndexTarget < RaccTableIndex) //RaccTableIndex--; 
+    if(TableIndexTarget < RaccTableIndex) 
     {
         if(stop_flag == 1) RaccTableIndex -= minustop;
         else RaccTableIndex--;
@@ -155,7 +164,7 @@ interrupt [TIM3_COMPA] void timer3_compa_isr(void)
     LPhaseIndex &= 0x07;  
     
     if(TableIndexTarget > LaccTableIndex) LaccTableIndex++;
-    if(TableIndexTarget < LaccTableIndex) //LaccTableIndex--;
+    if(TableIndexTarget < LaccTableIndex)
     {
         if(stop_flag == 1) LaccTableIndex -= minustop;
         else LaccTableIndex--;
@@ -407,8 +416,13 @@ void motor_test(void)
 // Update position
 void update_position(void)
 {    
-    distance_Max = (10000/dist_min[1]);  // PSD값 & 실제거리는 반비례
-    distance_min = (10000/dist_max[1]); 
+    distance_Max0 = (10000/dist_min[0]);  // PSD값 & 실제거리는 반비례
+    distance_min0 = (10000/dist_max[0]);
+    distance_now0 = (10000/dist_mean[0]);
+     
+    distance_Max1 = (10000/dist_min[1]);  // PSD값 & 실제거리는 반비례
+    distance_min1 = (10000/dist_max[1]);  
+    distance_now1 = (10000/dist_mean[1]);
     //mean_dist();
     // 코스 이탈 판단  
     if(dist_mean[1] < dist_min[1] || dist_mean[1] > dist_max[1]) 
@@ -420,39 +434,38 @@ void update_position(void)
         detach = 0;
         approach = 0;
         leave_flag = 0; 
-        //degree_factor = 0;
+        degree_factor = 200;
     }
  
     if(leave_flag) 
     {
         // ********** Degree of head ********** 
-        degree_factor = (unsigned long)(100*(2*dist_mean[0])/(dist_min[0]+dist_max[0]));
+        //degree_factor = (unsigned long)(200*(2*dist_mean[0])/(dist_min[0]+dist_max[0]));
+        degree_factor = (unsigned long)(200 * distance_min0/distance_now0);
            
-        if(degree_factor > 100) degree_factor = 100; 
-        head_reach = (unsigned long)(100*degree_factor/dist_mean[1]);  
+        if(degree_factor > 200) degree_factor = 200; 
+        //head_reach = (unsigned long)(50*degree_factor/dist_mean[1]); 
+        head_reach = (unsigned long)(degree_factor * distance_now1 /200);  
         
         // ******** Right/Left posiotion ********
         // Detaching from wall
-        if(head_reach > distance_Max)
+        if(head_reach > distance_Max1)
         {                                                                                                                                                                                                                                                                          
             detach = 1; 
-            approach = 0;
-            //delta = dist_min[0] - dist_mean[0];    
+            approach = 0;    
         } 
             
         // Approaching wall
-        if(head_reach < distance_min)
+        if(head_reach < distance_min1)
         {
             approach = 1; 
-            detach = 0;
-            //delta = dist_mean[0] - dist_max[0];    
+            detach = 0;   
         } 
     } 
     if(detach)  dir = -1;
     else if(approach) dir = 1; 
-    else;
-    // 결과 : degree_factor(100*cos(theta)), detach, approach(direction)
-             
+    // 결과 : degree_factor(200*cos(theta)), detach, approach(direction)
+    degree_factor-=200;         
 }
 
 void check_angle(void)
@@ -466,7 +479,7 @@ void check_angle(void)
         lcd_gotoxy(0, 0);
         lcd_putsf("Angle");
         lcd_gotoxy(0, 1);
-        sprintf(lcd_data, "%d", dir * (degree_factor-100)); 
+        sprintf(lcd_data, "%d", dir * (degree_factor)); 
         lcd_puts(lcd_data);                  
         delay_ms(500);  
     }  
@@ -479,7 +492,8 @@ void update_PID(void)
     // P-control
     //temp = (signed long)Pgain * degree_factor;  
     //temp = (signed long)(Pgain * dir * (degree_factor-100) * (25/15));
-    temp = (signed long)(Pgain * dir * (degree_factor-100));
+    temp = (signed long)(Pgain * dir * (degree_factor)); 
+    //temp = 0;
     
     // Saturation
     if(temp > 1111) temp = 1111;                   
@@ -590,7 +604,8 @@ void speed_adj(void)
         lcd_gotoxy(0, 1);
         sprintf(lcd_data, "%d", TableIndexTarget);
         lcd_puts(lcd_data);
-        delay_ms(100);
+        delay_ms(100); 
+        SearchTableIndex = TableIndexTarget;
     }
 }
 
