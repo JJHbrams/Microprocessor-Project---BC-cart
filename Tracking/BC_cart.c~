@@ -6,7 +6,7 @@ Automatic Program Generator
 http://www.hpinfotech.com
 
 Project : BC cart
-Version : 2.2.1
+Version : 2.3.0
 Date    : 2017-11-29
 Author  : Mrjohd
 Company : Univ. Chungnam
@@ -73,8 +73,8 @@ unsigned char RPhaseIndex = 0;
 unsigned char LPhaseIndex = 0;
 signed long  RaccTableIndex = 0;
 signed long  LaccTableIndex = 0;
-signed long  SearchTableIndex = 650;
-signed long  TableIndexTarget = 650;
+signed long  SearchTableIndex = 800;
+signed long  TableIndexTarget = 800;
 signed long  OCRr = 65535;
 signed long  OCRl = 65535;
 signed long temp = 0;
@@ -82,7 +82,8 @@ signed long  templ=0;
 signed long  tempr=0;
 unsigned char stop_flag = 0;
 signed int  denominator = 0;
-unsigned char step = 0;
+unsigned long step = 0;
+unsigned long stop_step = 500;
 unsigned char minustop = 3;
 
 //About Control flag
@@ -92,7 +93,7 @@ unsigned char stop_condition = 0;
 // ADC
 //unsigned char adc_data[4][100] = {0}; //adc 후 IR/압력센서/cds값이 저장됨
 unsigned char mux = 4; 
-unsigned char num_sample = 10;
+unsigned char num_sample = 15;
 unsigned char d_flag = 0;
 
 // * PSD    
@@ -127,6 +128,7 @@ unsigned long distance_now0;
 unsigned long distance_now1;
 signed int dir = 0;
 unsigned char mode = 0;
+unsigned char compensate = 1000;
 
 //*****************************************************************************************************************
 // Timer1 output compare A interrupt service routine
@@ -188,7 +190,11 @@ interrupt [ADC_INT] void adc_isr(void)
     // Read the AD conversion result   
     for (h = 0; h<=6; h++);   
     sam_num++;   
-    if(mux>4) dist_data[mux-5][sam_num] = ADCH; 
+    if(mux>4) 
+    {
+        dist_data[mux-5][sam_num] = ADCH;
+        PORTA = mux|0x00;
+    } 
     else if(mux == 4) cds_data[sam_num] = ADCH;  //ADC값의 high값을 사용함 
     else; 
     
@@ -199,7 +205,11 @@ interrupt [ADC_INT] void adc_isr(void)
         d_flag=1;
     }
         
-    if(mux > 7) mux = 4;    // PSD : PF5, 6, 7
+    if(mux > 7) 
+    {
+        mux = 4;    // PSD : PF5, 6, 7 
+        PORTA = 0x00;
+    }
     ADMUX = mux | 0x60;  
     ADCSRA |= 0x40;
 }
@@ -213,7 +223,7 @@ void mean_dist(void)
     while(!d_flag);
     for(psd_num = 0; psd_num < 3; psd_num++)
     {
-        for(num = 0; num < num_sample; num++)
+        for(num = 5; num < num_sample; num++)
             dist_sum[psd_num] += dist_data[psd_num][num];
             
         dist_mean[psd_num] = dist_sum[psd_num]/num_sample; 
@@ -405,7 +415,7 @@ void motor_test(void)
         lcd_clear();
         
        //STOP condition
-       if(step > 2000)             stop_condition = 1;
+       if(step > stop_step)             stop_condition = 1;
        if(cds_mean < cds_min+10)   stop_condition = 1;      
     }; 
     motor_off(); 
@@ -441,11 +451,11 @@ void update_position(void)
     {
         // ********** Degree of head ********** 
         //degree_factor = (unsigned long)(200*(2*dist_mean[0])/(dist_min[0]+dist_max[0]));
-        degree_factor = (unsigned long)(200 * distance_min0/distance_now0);
+        degree_factor = (unsigned long)(compensate * distance_min0/distance_now0);
            
-        if(degree_factor > 200) degree_factor = 200; 
+        if(degree_factor > 1000) degree_factor = 1000; 
         //head_reach = (unsigned long)(50*degree_factor/dist_mean[1]); 
-        head_reach = (unsigned long)(degree_factor * distance_now1 /200);  
+        head_reach = (unsigned long)(degree_factor * distance_now1 /compensate);  
         
         // ******** Right/Left posiotion ********
         // Detaching from wall
@@ -465,7 +475,7 @@ void update_position(void)
     if(detach)  dir = -1;
     else if(approach) dir = 1; 
     // 결과 : degree_factor(200*cos(theta)), detach, approach(direction)
-    degree_factor-=200;         
+    degree_factor-=compensate;         
 }
 
 void check_angle(void)
@@ -492,7 +502,7 @@ void update_PID(void)
     // P-control
     //temp = (signed long)Pgain * degree_factor;  
     //temp = (signed long)(Pgain * dir * (degree_factor-100) * (25/15));
-    temp = (signed long)(Pgain * dir * (degree_factor)); 
+    temp = (signed long)(Pgain * dir * degree_factor); 
     //temp = 0;
     
     // Saturation
@@ -563,7 +573,7 @@ void navigate(void)
         update_PID(); 
             
         //STOP condition                                 
-        if(step > 2000)             stop_condition = 1;
+        if(step > stop_step)             stop_condition = 1;
         if(cds_mean < cds_min+10)   stop_condition = 1; 
     }
     motor_off();
@@ -609,13 +619,32 @@ void speed_adj(void)
     }
 }
 
+void s_step_adj(void)
+{
+    delay_ms(100);
+    while(Middle_switch_off)
+    {
+        if(Left_switch_on) stop_step+=10;
+        if(Right_switch_on) stop_step-=10;
+             
+        lcd_clear();
+        lcd_gotoxy(0,0);
+        lcd_putsf("s_stop!!");
+        
+        lcd_gotoxy(0, 1);
+        sprintf(lcd_data, "%d", stop_step);
+        lcd_puts(lcd_data);
+        delay_ms(100); 
+    }
+}
+
 // ********************************************* main ******************************************************************
 void main(void)
 {
 // Declare your local variables here
 // menu
 unsigned char menu = 0;
-unsigned char menu_Max = 9;
+unsigned char menu_Max = 10;
 
 
 PORTA=0x00;
@@ -687,6 +716,8 @@ OCR3CL=0x00;
 
 ADMUX=0x25;
 ADCSRA=0xCF;
+//모든 포트 Pull up 
+SFIOR=0x00;
 
 lcd_init(8);
 // Global enable interrupts
@@ -790,9 +821,21 @@ while (1)
                     lcd_puts(lcd_data); 
                     if(Middle_switch_on)    speed_adj();    
                     delay_ms(50); 
-                    break;                                
+                    break;  
+                    
+             case 10:
+                    lcd_clear();
+                    lcd_gotoxy(0, 0);
+                    lcd_putsf("11.S_STEP"); 
+                    lcd_gotoxy(0, 1);
+                    sprintf(lcd_data, "%d", stop_step);
+                    lcd_puts(lcd_data); 
+                    if(Middle_switch_on)    s_step_adj();    
+                    delay_ms(50); 
+                    break;                              
          }
          delay_ms(250);   
       }
     
 }
+
