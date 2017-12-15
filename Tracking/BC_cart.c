@@ -6,7 +6,7 @@ Automatic Program Generator
 http://www.hpinfotech.com
 
 Project : BC cart
-Version : 2.4.0
+Version : 2.4.1
 Date    : 2017-11-29
 Author  : Mrjohd
 Company : Univ. Chungnam
@@ -19,10 +19,9 @@ AVR Core Clock frequency: 16.000000 MHz
 Memory model            : Small
 External RAM size       : 0
 Data Stack size         : 1024
-***************** Version 2.4.0 변경사항 ********************//* 
+***************** Version 2.4.1 변경사항 ********************//* 
 
-- 후진을 위한 스텝모터 상 배열 추가
-- 후진 코드 추가   
+- 전진/후진상태를 나타내는 지역변수, state를 사용X  
     
 *//************************************************************/
 
@@ -61,9 +60,7 @@ unsigned char j = 0; // counting variable for function
 // LCD
 unsigned char lcd_data[40];   
 //*****************************************************************************************************************
-//About position                                        
-signed int position = 0;
-//signed int position_array[8] = {0, -25, -15, -5, 5, 15, 25, 0}; //position이 반대인 경우 이 배열을 바꾸세요  
+//About PID                                        
 unsigned int Pgain=42;
 //*****************************************************************************************************************
 // Motor   
@@ -83,8 +80,8 @@ unsigned char LPhaseIndex = 0;
 signed long  RaccTableIndex = 0;
 signed long  LaccTableIndex = 0;
 
-signed long  SearchTableIndex = 800;
-signed long  TableIndexTarget = 800;
+signed long  SearchTableIndex = 200;
+signed long  TableIndexTarget = 200 ;
 
 signed long  OCRr = 65535;
 signed long  OCRl = 65535;
@@ -92,6 +89,8 @@ signed long  OCRl = 65535;
 signed long temp = 0;
 signed long  templ=0;   
 signed long  tempr=0;
+unsigned long MAX_temp; 
+unsigned long min_temp;
 unsigned char stop_flag = 0;
 signed int  denominator = 0;
 unsigned long step = 0;
@@ -112,8 +111,6 @@ unsigned char d_flag = 0;
 unsigned char dist_data[3][100] = {0}; //adc변환 이후 PSD값이 저장되는 배열
 unsigned int dist_sum[3]={0}; 
 unsigned char dist_mean[3]={0};
-//unsigned char dist_max[3] = {0, 0, 0}; //tuning에서 최대값 및 최소값을 넣기 위한 배열
-//unsigned char dist_min[3] = {255, 255, 255};
 unsigned char dist_max[3] = {0, 0, 0}; //tuning에서 최대값 및 최소값을 넣기 위한 배열
 unsigned char dist_min[3] = {255, 255, 255};
 
@@ -197,10 +194,8 @@ interrupt [TIM3_COMPA] void timer3_compa_isr(void)
 // ********************************* ADC interrupt service routine ************************************************
 interrupt [ADC_INT] void adc_isr(void)
 {  
-
     // Read the AD conversion result   
-    //for (h = 0; h<=6; h++);   
-    sam_num++;   
+    //for (h = 0; h<=6; h++);      
     if(mux>4) dist_data[mux-5][sam_num] = ADCH;     
     else if(mux == 4) cds_data[sam_num] = ADCH;  //ADC값의 high값을 사용함 
     else; 
@@ -214,7 +209,8 @@ interrupt [ADC_INT] void adc_isr(void)
         
     if(mux > 7)  mux = 4;    // PSD : PF5, 6, 7 
     ADMUX = mux | 0x60;  
-    ADCSRA |= 0x40;
+    ADCSRA |= 0x40;  
+    sam_num++;
 }
 
 // ************************************** About PSD *************************************************
@@ -492,7 +488,7 @@ void motor_test(void)
 
 //*************************************** About Running ***************************************************************
 // Update position
-void update_position(void)
+void update_position(signed int direction)
 {    
     distance_Max0 = (10000/dist_min[0]);  // PSD값 & 실제거리는 반비례
     distance_min0 = (10000/dist_max[0]);
@@ -543,17 +539,18 @@ void update_position(void)
     if(detach)  dir = -1;
     else if(approach) dir = 1; 
     // 결과 : degree_factor(200*cos(theta)), detach, approach(direction)
-    degree_factor-=compensate; 
-    degree_factor*=dir;        
+    degree_factor -= compensate; 
+    degree_factor = dir * direction;        
 }
 
 void check_angle(void)
 {
+    signed int FB_flag = 1;
     delay_ms(100);
     while(Middle_switch_off)
     {
         mean_dist();
-        update_position(); 
+        update_position(FB_flag); 
         lcd_clear();
         lcd_gotoxy(0, 0);
         lcd_putsf("Angle");
@@ -566,13 +563,9 @@ void check_angle(void)
 
 void update_PID(void)
 {
-    //signed long temp;   
-    
-    // P-control
-    //temp = (signed long)Pgain * degree_factor;  
-    //temp = (signed long)(Pgain * dir * (degree_factor-100) * (25/15));
+    // direction = 1 : forward
+    // direction = -1 : backward
     temp = (signed long)(Pgain * degree_factor); 
-    //temp = 0;
     
     // Saturation
     if(temp > 1111) temp = 1111;                   
@@ -584,25 +577,22 @@ void update_PID(void)
     
     // 모터속도 결정
     tempr = (((unsigned long)table[RaccTableIndex]) * 10000 / (denominator+10000));
-    //if(tempr>65534) tempr = 65534;
-	//if(tempr<1) tempr = 1;  
-    if(tempr>18463) tempr = 18463;
-    if(tempr<2565) tempr = 2565;
+    if(tempr>18463) tempr = MAX_temp;
+    if(tempr<2565) tempr = min_temp;
     
     templ = (((unsigned long)table[LaccTableIndex]) * 10000 / (-denominator+10000));
-    //if(templ>65534) templ = 65534;
-    //if(templ<1) templ = 1;
-    if(templ>18463) templ = 18463; //최저속도       
-    if(templ<2565) templ = 2565; //최고속도
+    if(templ>18463) templ = MAX_temp; //최저속도       
+    if(templ<2565) templ = min_temp; //최고속도
 }   
 
 void Heading()
 {
+    signed int FB_flag = 1;
     delay_ms(100);
     while(Middle_switch_off)
     {
         mean_dist();
-        update_position();
+        update_position(FB_flag);
          
         lcd_clear();
         lcd_gotoxy(0, 0);
@@ -631,8 +621,8 @@ void Heading()
 //About race
 void navigate(void)
 {  
-    char state = 0;
-    long temp_step;
+    long temp_step; 
+    signed int FB_flag = 1;
     
     lcd_clear();
     lcd_gotoxy(0, 0);
@@ -641,14 +631,14 @@ void navigate(void)
     mode = 1; 
     
     initiation();
-    motor_phase_setting(state);  
+    motor_phase_setting(0);  
     while(Middle_switch_off)
     {  
-        if(Left_switch_off) initiation();  //원점귀환 후 다시 주행시작 - TEST (실제상황에서는 무게감지 혹은 바코드 인식으로 인한 flag로 설정)
+        if(Left_switch_on) initiation();  //원점귀환 후 다시 주행시작 - TEST (실제상황에서는 무게감지 혹은 바코드 인식으로 인한 flag로 설정)
         
         mean_dist();
         mean_cds();
-        update_position();
+        update_position(FB_flag);
         update_PID();             
         
         //Back condition 
@@ -656,21 +646,20 @@ void navigate(void)
         {
             motor_off();
             stop_condition = 1;
-            state = ~state;
-            motor_phase_setting(state);
+            motor_phase_setting(1);
             temp_step = step;
             delay_ms(500); //이부분 대신에 책던지는 작업 추가
-            initiation();
+            initiation();   
+            FB_flag = -1;
         }    
         
         // 원점으로 귀환                               
-        if((step > temp_step+100) && (stop_condition == 1))  //100은 기계적 오차에 대한 여유분      
+        if((step > temp_step+100) && (stop_condition))  //100은 기계적 오차에 대한 여유분      
         {
-            motor_off();        
-            state = ~state;
-            motor_phase_setting(state); 
-            step = 0;  
-            stop_condition = 0;
+            motor_off();    
+            motor_phase_setting(0);  
+            temp_step=0; 
+            FB_flag = 1; 
         } 
     }
     motor_off();
@@ -743,6 +732,8 @@ void main(void)
 unsigned char menu = 0;
 unsigned char menu_Max = 10;
 
+MAX_temp = (unsigned long)((table[TableIndexTarget] * 10000) / (9*Pgain*(-15)+10000)); 
+min_temp = (unsigned long)(table[TableIndexTarget]);
 
 PORTA=0xFE;
 DDRA=0xFF;
