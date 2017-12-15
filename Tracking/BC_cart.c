@@ -6,7 +6,7 @@ Automatic Program Generator
 http://www.hpinfotech.com
 
 Project : BC cart
-Version : 2.3.3
+Version : 2.4.0
 Date    : 2017-11-29
 Author  : Mrjohd
 Company : Univ. Chungnam
@@ -19,11 +19,12 @@ AVR Core Clock frequency: 16.000000 MHz
 Memory model            : Small
 External RAM size       : 0
 Data Stack size         : 1024
-*****************************************************/
-         // PSD0가 80인 지점에서 돌릴것  
-         // PSD1이 100인 지점에서 돌릴것   
-         // 원하는대로 구동하나 위치선정이 상당히 중요하며 또한 경로가 안정적이지 못함
-/*****************************************************/
+***************** Version 2.4.0 변경사항 ********************//* 
+
+- 후진을 위한 스텝모터 상 배열 추가
+- 후진 코드 추가   
+    
+*//************************************************************/
 
 #include <mega128.h>
 #include <delay.h>
@@ -65,26 +66,36 @@ signed int position = 0;
 //signed int position_array[8] = {0, -25, -15, -5, 5, 15, 25, 0}; //position이 반대인 경우 이 배열을 바꾸세요  
 unsigned int Pgain=42;
 //*****************************************************************************************************************
-// Motor                               
-//unsigned char RMotorPhase[8] = {0x90, 0x80, 0xa0, 0x20, 0x60, 0x40, 0x50, 0x10};
-unsigned char RMotorPhase[8] = {0x10, 0x50, 0x40, 0x60, 0x20, 0xA0, 0x80, 0x90};
-//unsigned char LMotorPhase[8] = {0x01, 0x05, 0x04, 0x06, 0x02, 0x0A, 0x08, 0x09};
-unsigned char LMotorPhase[8] = {0x09, 0x08, 0x0A, 0x02, 0x06, 0x04, 0x05, 0x01};
+// Motor   
+// Actual phase array
+unsigned char RMotorPhase_real[8] = {0};
+unsigned char LMotorPhase_real[8] = {0};   
+// Backward phase                         
+unsigned char RMotorPhase_B[8] = {0x90, 0x80, 0xa0, 0x20, 0x60, 0x40, 0x50, 0x10};
+unsigned char LMotorPhase_B[8] = {0x01, 0x05, 0x04, 0x06, 0x02, 0x0A, 0x08, 0x09};
+// Forward phase
+unsigned char RMotorPhase_F[8] = {0x10, 0x50, 0x40, 0x60, 0x20, 0xA0, 0x80, 0x90};
+unsigned char LMotorPhase_F[8] = {0x09, 0x08, 0x0A, 0x02, 0x06, 0x04, 0x05, 0x01};
+
 unsigned char RPhaseIndex = 0;
 unsigned char LPhaseIndex = 0;
+
 signed long  RaccTableIndex = 0;
 signed long  LaccTableIndex = 0;
+
 signed long  SearchTableIndex = 800;
 signed long  TableIndexTarget = 800;
+
 signed long  OCRr = 65535;
 signed long  OCRl = 65535;
+
 signed long temp = 0;
 signed long  templ=0;   
 signed long  tempr=0;
 unsigned char stop_flag = 0;
 signed int  denominator = 0;
 unsigned long step = 0;
-unsigned long stop_step = 7000;
+unsigned long stop_step = 6000;
 unsigned char minustop = 3;
 
 //About Control flag
@@ -153,10 +164,9 @@ interrupt [TIM1_COMPA] void timer1_compa_isr(void)
     OCR1AH = OCRr >> 8;
     OCR1AL = OCRr;
     
-    PORTC = RMotorPhase[RPhaseIndex] | LMotorPhase[LPhaseIndex];
+    PORTC = RMotorPhase_real[RPhaseIndex] | LMotorPhase_real[LPhaseIndex];
     
     step++;
-
 }
 
 // Timer3 output compare A interrupt service routine
@@ -179,7 +189,7 @@ interrupt [TIM3_COMPA] void timer3_compa_isr(void)
     if(mode)     OCRl = templ;   // Motor running mode
     OCR3AH = OCRl >> 8;
     OCR3AL = OCRl;
-    PORTC = RMotorPhase[RPhaseIndex] | LMotorPhase[LPhaseIndex];
+    PORTC = RMotorPhase_real[RPhaseIndex] | LMotorPhase_real[LPhaseIndex];
     
     step++;
 }
@@ -189,7 +199,7 @@ interrupt [ADC_INT] void adc_isr(void)
 {  
 
     // Read the AD conversion result   
-    for (h = 0; h<=6; h++);   
+    //for (h = 0; h<=6; h++);   
     sam_num++;   
     if(mux>4) dist_data[mux-5][sam_num] = ADCH;     
     else if(mux == 4) cds_data[sam_num] = ADCH;  //ADC값의 high값을 사용함 
@@ -225,6 +235,7 @@ void mean_dist(void)
     d_flag=0;
     //delay_ms(10);                 
 }
+
 //PSD test
 void PSD_test(void)
 {
@@ -367,6 +378,30 @@ void cds_tuning(void)
 }
 
 // *********************************** About Motor **********************************************
+void motor_phase_setting(char p_mode)
+{
+    int phasing;
+    // p_mode = 0 : forward
+    // p_mode = 1 : backward
+    if(!p_mode)
+    {
+        for(phasing = 0; phasing < 8; phasing++)
+        {
+            RMotorPhase_real[phasing] = RMotorPhase_F[phasing];
+            LMotorPhase_real[phasing] = LMotorPhase_F[phasing];     
+        }
+    }  
+    
+    else
+    {
+        for(phasing = 0; phasing < 8; phasing++)
+        {
+            RMotorPhase_real[phasing] = RMotorPhase_B[phasing];
+            LMotorPhase_real[phasing] = LMotorPhase_B[phasing];     
+        }
+    } 
+}
+
 void initiation(void)
 {
     //타이머 관련 초기화
@@ -394,23 +429,63 @@ void motor_off(void)
 }
 
 void motor_test(void)
-{  
+{   
+    long temp_step;
+    
     lcd_clear();
     delay_ms(500);
     lcd_gotoxy(0, 0);
-    lcd_putsf("TESTing");
+    lcd_putsf("TESTing");  
     
+    motor_phase_setting(0); 
     initiation();
+      
+    /*
     while(Middle_switch_off && !stop_condition)
     {  
         PORTA.0 = 1;  
         mean_cds();
-        lcd_clear();
         
+       if(step > stop_step)        
+       {
+            motor_off();  
+            delay_ms(500); 
+            state = ~state;
+            motor_phase_setting(state); 
+            step = 0; 
+            initiation(); 
+       }   
        //STOP condition
-       if(step > stop_step)             stop_condition = 1;
        if(cds_mean < cds_min+10)   stop_condition = 1;      
-    }; 
+    }
+    */ 
+    
+    while(Middle_switch_off)
+    {  
+        mean_cds();
+        //Back condition  
+        if(cds_mean < cds_min+10)   
+        {
+            motor_off(); 
+            stop_condition = 1;
+            motor_phase_setting(1);
+            temp_step = step;
+            delay_ms(500); //이부분 대신에 책던지는 작업 추가
+            initiation();
+        }   
+        else; 
+        
+        // 원점으로 귀환                              
+          
+        if((step > (temp_step+100)) && (stop_condition))  //100은 기계적 오차에 대한 여유분      
+        {
+            motor_off(); 
+            motor_phase_setting(0); 
+            temp_step = 0;
+        } 
+        
+    }
+    
     motor_off(); 
     PORTA.0=0;
 }
@@ -556,35 +631,51 @@ void Heading()
 //About race
 void navigate(void)
 {  
+    char state = 0;
+    long temp_step;
+    
     lcd_clear();
     lcd_gotoxy(0, 0);
     lcd_putsf("GO!!"); 
     delay_ms(500);
     mode = 1; 
     
-    initiation();  
-    while(Middle_switch_off && !stop_condition)
+    initiation();
+    motor_phase_setting(state);  
+    while(Middle_switch_off)
     {  
+        if(Left_switch_off) initiation();  //원점귀환 후 다시 주행시작 - TEST (실제상황에서는 무게감지 혹은 바코드 인식으로 인한 flag로 설정)
+        
         mean_dist();
         mean_cds();
         update_position();
-        update_PID(); 
+        update_PID();             
         
-        lcd_gotoxy(0, 1);
-        sprintf(lcd_data, "%d", approach);
-        lcd_puts(lcd_data);
-        lcd_gotoxy(7, 1);
-        sprintf(lcd_data, "%d", detach);
-        lcd_puts(lcd_data);
-            
-        //STOP condition                                 
-        //if(step > stop_step)             stop_condition = 1;
-        if(cds_mean < cds_min+10)   stop_condition = 1; 
+        //Back condition 
+        if(cds_mean < cds_min+10)   
+        {
+            motor_off();
+            stop_condition = 1;
+            state = ~state;
+            motor_phase_setting(state);
+            temp_step = step;
+            delay_ms(500); //이부분 대신에 책던지는 작업 추가
+            initiation();
+        }    
+        
+        // 원점으로 귀환                               
+        if((step > temp_step+100) && (stop_condition == 1))  //100은 기계적 오차에 대한 여유분      
+        {
+            motor_off();        
+            state = ~state;
+            motor_phase_setting(state); 
+            step = 0;  
+            stop_condition = 0;
+        } 
     }
     motor_off();
     mode = 0;
 }
-
 
 void Pgain_adj(void)
 {

@@ -6,7 +6,7 @@
 ;http://www.hpinfotech.com
 ;
 ;Project : BC cart
-;Version : 2.3.2
+;Version : 2.4.0
 ;Date    : 2017-11-29
 ;Author  : Mrjohd
 ;Company : Univ. Chungnam
@@ -19,10 +19,12 @@
 ;Memory model            : Small
 ;External RAM size       : 0
 ;Data Stack size         : 1024
-;*****************************************************/
-;         // PSD0가 80인 지점에서 돌릴것
-;         // PSD1이 100인 지점에서 돌릴것
-;/*****************************************************/
+;***************** Version 2.4.0 변경사항 ********************//*
+;
+;- 후진을 위한 스텝모터 상 배열 추가
+;- 후진 코드 추가
+;
+;*//************************************************************/
 ;
 ;#include <mega128.h>
 ;PCODE: $00000000 VOL: 0
@@ -62,7 +64,7 @@
  .equ __lcd_port = 0x12 //PORTD 8
 ;PCODE: $0000000E VOL: 0
 ;PCODE: $0000000F VOL: 0
-; 0000 0026 #endasm
+; 0000 0028 #endasm
 ;// About ADC
 ;#define ADC_VREF_TYPE 0x60
 ;//About Switch
@@ -92,27 +94,37 @@
 ;unsigned int Pgain=42;
 ;//*****************************************************************************************************************
 ;// Motor
-;//unsigned char RMotorPhase[8] = {0x90, 0x80, 0xa0, 0x20, 0x60, 0x40, 0x50, 0x10};
-;unsigned char RMotorPhase[8] = {0x10, 0x50, 0x40, 0x60, 0x20, 0xA0, 0x80, 0x90};
+;// Actual phase array
+;unsigned char RMotorPhase_real[8] = {0};
+;unsigned char LMotorPhase_real[8] = {0};
+;// Backward phase
+;unsigned char RMotorPhase_B[8] = {0x90, 0x80, 0xa0, 0x20, 0x60, 0x40, 0x50, 0x10};
 
 	.DSEG
-;//unsigned char LMotorPhase[8] = {0x01, 0x05, 0x04, 0x06, 0x02, 0x0A, 0x08, 0x09};
-;unsigned char LMotorPhase[8] = {0x09, 0x08, 0x0A, 0x02, 0x06, 0x04, 0x05, 0x01};
+;unsigned char LMotorPhase_B[8] = {0x01, 0x05, 0x04, 0x06, 0x02, 0x0A, 0x08, 0x09};
+;// Forward phase
+;unsigned char RMotorPhase_F[8] = {0x10, 0x50, 0x40, 0x60, 0x20, 0xA0, 0x80, 0x90};
+;unsigned char LMotorPhase_F[8] = {0x09, 0x08, 0x0A, 0x02, 0x06, 0x04, 0x05, 0x01};
+;
 ;unsigned char RPhaseIndex = 0;
 ;unsigned char LPhaseIndex = 0;
+;
 ;signed long  RaccTableIndex = 0;
 ;signed long  LaccTableIndex = 0;
+;
 ;signed long  SearchTableIndex = 800;
 ;signed long  TableIndexTarget = 800;
+;
 ;signed long  OCRr = 65535;
 ;signed long  OCRl = 65535;
+;
 ;signed long temp = 0;
 ;signed long  templ=0;
 ;signed long  tempr=0;
 ;unsigned char stop_flag = 0;
 ;signed int  denominator = 0;
 ;unsigned long step = 0;
-;unsigned long stop_step = 7000;
+;unsigned long stop_step = 6000;
 ;unsigned char minustop = 3;
 ;
 ;//About Control flag
@@ -162,20 +174,20 @@
 ;//*****************************************************************************************************************
 ;// Timer1 output compare A interrupt service routine
 ;interrupt [TIM1_COMPA] void timer1_compa_isr(void)
-; 0000 0088 {
+; 0000 0094 {
 
 	.CSEG
 ;PCODE: $00000010 VOL: 0
 ;PCODE: $00000011 VOL: 0
-; 0000 0089     // Place your code here
-; 0000 008A     RPhaseIndex++;
+; 0000 0095     // Place your code here
+; 0000 0096     RPhaseIndex++;
 ;PCODE: $00000012 VOL: 0
-; 0000 008B     RPhaseIndex &= 0x07;
+; 0000 0097     RPhaseIndex &= 0x07;
 ;PCODE: $00000013 VOL: 0
 ;PCODE: $00000014 VOL: 0
 ;PCODE: $00000015 VOL: 0
-; 0000 008C 
-; 0000 008D     if(TableIndexTarget > RaccTableIndex) RaccTableIndex++;
+; 0000 0098 
+; 0000 0099     if(TableIndexTarget > RaccTableIndex) RaccTableIndex++;
 ;PCODE: $00000016 VOL: 0
 ;PCODE: $00000017 VOL: 0
 ;PCODE: $00000018 VOL: 0
@@ -184,14 +196,14 @@
 ;PCODE: $0000001B VOL: 0
 ;PCODE: $0000001C VOL: 0
 ;PCODE: $0000001D VOL: 0
-; 0000 008E     if(TableIndexTarget < RaccTableIndex)
+; 0000 009A     if(TableIndexTarget < RaccTableIndex)
 ;PCODE: $0000001E VOL: 0
 ;PCODE: $0000001F VOL: 0
 ;PCODE: $00000020 VOL: 0
 ;PCODE: $00000021 VOL: 0
 ;PCODE: $00000022 VOL: 0
-; 0000 008F     {
-; 0000 0090         if(stop_flag == 1) RaccTableIndex -= minustop;
+; 0000 009B     {
+; 0000 009C         if(stop_flag == 1) RaccTableIndex -= minustop;
 ;PCODE: $00000023 VOL: 0
 ;PCODE: $00000024 VOL: 0
 ;PCODE: $00000025 VOL: 0
@@ -201,25 +213,25 @@
 ;PCODE: $00000029 VOL: 0
 ;PCODE: $0000002A VOL: 0
 ;PCODE: $0000002B VOL: 0
-; 0000 0091         else RaccTableIndex--;
+; 0000 009D         else RaccTableIndex--;
 ;PCODE: $0000002C VOL: 0
 ;PCODE: $0000002D VOL: 0
 ;PCODE: $0000002E VOL: 0
 ;PCODE: $0000002F VOL: 0
 ;PCODE: $00000030 VOL: 0
 ;PCODE: $00000031 VOL: 0
-; 0000 0092     }
+; 0000 009E     }
 ;PCODE: $00000032 VOL: 0
-; 0000 0093 
-; 0000 0094     if(RaccTableIndex <= 0) RaccTableIndex = 0;
+; 0000 009F 
+; 0000 00A0     if(RaccTableIndex <= 0) RaccTableIndex = 0;
 ;PCODE: $00000033 VOL: 0
 ;PCODE: $00000034 VOL: 0
 ;PCODE: $00000035 VOL: 0
 ;PCODE: $00000036 VOL: 0
 ;PCODE: $00000037 VOL: 0
 ;PCODE: $00000038 VOL: 0
-; 0000 0095 
-; 0000 0096     if(!mode)    OCRr = table[RaccTableIndex]; // Motor TEST mode
+; 0000 00A1 
+; 0000 00A2     if(!mode)    OCRr = table[RaccTableIndex]; // Motor TEST mode
 ;PCODE: $00000039 VOL: 0
 ;PCODE: $0000003A VOL: 0
 ;PCODE: $0000003B VOL: 0
@@ -231,24 +243,24 @@
 ;PCODE: $00000041 VOL: 0
 ;PCODE: $00000042 VOL: 0
 ;PCODE: $00000043 VOL: 0
-; 0000 0097     if(mode)     OCRr = tempr;   // Motor running mode
+; 0000 00A3     if(mode)     OCRr = tempr;   // Motor running mode
 ;PCODE: $00000044 VOL: 0
 ;PCODE: $00000045 VOL: 0
 ;PCODE: $00000046 VOL: 0
 ;PCODE: $00000047 VOL: 0
 ;PCODE: $00000048 VOL: 0
 ;PCODE: $00000049 VOL: 0
-; 0000 0098     OCR1AH = OCRr >> 8;
+; 0000 00A4     OCR1AH = OCRr >> 8;
 ;PCODE: $0000004A VOL: 0
 ;PCODE: $0000004B VOL: 0
 ;PCODE: $0000004C VOL: 0
 ;PCODE: $0000004D VOL: 0
 ;PCODE: $0000004E VOL: 0
-; 0000 0099     OCR1AL = OCRr;
+; 0000 00A5     OCR1AL = OCRr;
 ;PCODE: $0000004F VOL: 0
 ;PCODE: $00000050 VOL: 0
-; 0000 009A 
-; 0000 009B     PORTC = RMotorPhase[RPhaseIndex] | LMotorPhase[LPhaseIndex];
+; 0000 00A6 
+; 0000 00A7     PORTC = RMotorPhase_real[RPhaseIndex] | LMotorPhase_real[LPhaseIndex];
 ;PCODE: $00000051 VOL: 0
 ;PCODE: $00000052 VOL: 0
 ;PCODE: $00000053 VOL: 0
@@ -259,32 +271,31 @@
 ;PCODE: $00000058 VOL: 0
 ;PCODE: $00000059 VOL: 0
 ;PCODE: $0000005A VOL: 0
-; 0000 009C 
-; 0000 009D     step++;
+; 0000 00A8 
+; 0000 00A9     step++;
 ;PCODE: $0000005B VOL: 0
 ;PCODE: $0000005C VOL: 0
 ;PCODE: $0000005D VOL: 0
 ;PCODE: $0000005E VOL: 0
-; 0000 009E 
-; 0000 009F }
+; 0000 00AA }
 ;PCODE: $0000005F VOL: 0
 ;PCODE: $00000060 VOL: 0
 ;PCODE: $00000061 VOL: 0
 ;
 ;// Timer3 output compare A interrupt service routine
 ;interrupt [TIM3_COMPA] void timer3_compa_isr(void)
-; 0000 00A3 {
+; 0000 00AE {
 ;PCODE: $00000062 VOL: 0
 ;PCODE: $00000063 VOL: 0
-; 0000 00A4     // Place your code here
-; 0000 00A5     LPhaseIndex++;
+; 0000 00AF     // Place your code here
+; 0000 00B0     LPhaseIndex++;
 ;PCODE: $00000064 VOL: 0
-; 0000 00A6     LPhaseIndex &= 0x07;
+; 0000 00B1     LPhaseIndex &= 0x07;
 ;PCODE: $00000065 VOL: 0
 ;PCODE: $00000066 VOL: 0
 ;PCODE: $00000067 VOL: 0
-; 0000 00A7 
-; 0000 00A8     if(TableIndexTarget > LaccTableIndex) LaccTableIndex++;
+; 0000 00B2 
+; 0000 00B3     if(TableIndexTarget > LaccTableIndex) LaccTableIndex++;
 ;PCODE: $00000068 VOL: 0
 ;PCODE: $00000069 VOL: 0
 ;PCODE: $0000006A VOL: 0
@@ -293,14 +304,14 @@
 ;PCODE: $0000006D VOL: 0
 ;PCODE: $0000006E VOL: 0
 ;PCODE: $0000006F VOL: 0
-; 0000 00A9     if(TableIndexTarget < LaccTableIndex)
+; 0000 00B4     if(TableIndexTarget < LaccTableIndex)
 ;PCODE: $00000070 VOL: 0
 ;PCODE: $00000071 VOL: 0
 ;PCODE: $00000072 VOL: 0
 ;PCODE: $00000073 VOL: 0
 ;PCODE: $00000074 VOL: 0
-; 0000 00AA     {
-; 0000 00AB         if(stop_flag == 1) LaccTableIndex -= minustop;
+; 0000 00B5     {
+; 0000 00B6         if(stop_flag == 1) LaccTableIndex -= minustop;
 ;PCODE: $00000075 VOL: 0
 ;PCODE: $00000076 VOL: 0
 ;PCODE: $00000077 VOL: 0
@@ -310,25 +321,25 @@
 ;PCODE: $0000007B VOL: 0
 ;PCODE: $0000007C VOL: 0
 ;PCODE: $0000007D VOL: 0
-; 0000 00AC         else LaccTableIndex--;
+; 0000 00B7         else LaccTableIndex--;
 ;PCODE: $0000007E VOL: 0
 ;PCODE: $0000007F VOL: 0
 ;PCODE: $00000080 VOL: 0
 ;PCODE: $00000081 VOL: 0
 ;PCODE: $00000082 VOL: 0
 ;PCODE: $00000083 VOL: 0
-; 0000 00AD     }
+; 0000 00B8     }
 ;PCODE: $00000084 VOL: 0
-; 0000 00AE 
-; 0000 00AF     if(LaccTableIndex <= 0) LaccTableIndex = 0;
+; 0000 00B9 
+; 0000 00BA     if(LaccTableIndex <= 0) LaccTableIndex = 0;
 ;PCODE: $00000085 VOL: 0
 ;PCODE: $00000086 VOL: 0
 ;PCODE: $00000087 VOL: 0
 ;PCODE: $00000088 VOL: 0
 ;PCODE: $00000089 VOL: 0
 ;PCODE: $0000008A VOL: 0
-; 0000 00B0 
-; 0000 00B1     if(!mode)    OCRl = table[LaccTableIndex]; // Motor TEST mode
+; 0000 00BB 
+; 0000 00BC     if(!mode)    OCRl = table[LaccTableIndex]; // Motor TEST mode
 ;PCODE: $0000008B VOL: 0
 ;PCODE: $0000008C VOL: 0
 ;PCODE: $0000008D VOL: 0
@@ -340,23 +351,23 @@
 ;PCODE: $00000093 VOL: 0
 ;PCODE: $00000094 VOL: 0
 ;PCODE: $00000095 VOL: 0
-; 0000 00B2     if(mode)     OCRl = templ;   // Motor running mode
+; 0000 00BD     if(mode)     OCRl = templ;   // Motor running mode
 ;PCODE: $00000096 VOL: 0
 ;PCODE: $00000097 VOL: 0
 ;PCODE: $00000098 VOL: 0
 ;PCODE: $00000099 VOL: 0
 ;PCODE: $0000009A VOL: 0
 ;PCODE: $0000009B VOL: 0
-; 0000 00B3     OCR3AH = OCRl >> 8;
+; 0000 00BE     OCR3AH = OCRl >> 8;
 ;PCODE: $0000009C VOL: 0
 ;PCODE: $0000009D VOL: 0
 ;PCODE: $0000009E VOL: 0
 ;PCODE: $0000009F VOL: 0
 ;PCODE: $000000A0 VOL: 0
-; 0000 00B4     OCR3AL = OCRl;
+; 0000 00BF     OCR3AL = OCRl;
 ;PCODE: $000000A1 VOL: 0
 ;PCODE: $000000A2 VOL: 0
-; 0000 00B5     PORTC = RMotorPhase[RPhaseIndex] | LMotorPhase[LPhaseIndex];
+; 0000 00C0     PORTC = RMotorPhase_real[RPhaseIndex] | LMotorPhase_real[LPhaseIndex];
 ;PCODE: $000000A3 VOL: 0
 ;PCODE: $000000A4 VOL: 0
 ;PCODE: $000000A5 VOL: 0
@@ -367,26 +378,28 @@
 ;PCODE: $000000AA VOL: 0
 ;PCODE: $000000AB VOL: 0
 ;PCODE: $000000AC VOL: 0
-; 0000 00B6 
-; 0000 00B7     step++;
+; 0000 00C1 
+; 0000 00C2     step++;
 ;PCODE: $000000AD VOL: 0
 ;PCODE: $000000AE VOL: 0
 ;PCODE: $000000AF VOL: 0
 ;PCODE: $000000B0 VOL: 0
-; 0000 00B8 }
+; 0000 00C3 }
 ;PCODE: $000000B1 VOL: 0
 ;PCODE: $000000B2 VOL: 0
 ;PCODE: $000000B3 VOL: 0
 ;
 ;// ********************************* ADC interrupt service routine ************************************************
 ;interrupt [ADC_INT] void adc_isr(void)
-; 0000 00BC {
+; 0000 00C7 {
 ;PCODE: $000000B4 VOL: 0
 ;PCODE: $000000B5 VOL: 0
-; 0000 00BD 
-; 0000 00BE     // Read the AD conversion result
-; 0000 00BF     for (h = 0; h<=6; h++);
+; 0000 00C8 
+; 0000 00C9     // Read the AD conversion result
+; 0000 00CA     //for (h = 0; h<=6; h++);
+; 0000 00CB     sam_num++;
 ;PCODE: $000000B6 VOL: 0
+; 0000 00CC     if(mux>4) dist_data[mux-5][sam_num] = ADCH;
 ;PCODE: $000000B7 VOL: 0
 ;PCODE: $000000B8 VOL: 0
 ;PCODE: $000000B9 VOL: 0
@@ -397,11 +410,10 @@
 ;PCODE: $000000BE VOL: 0
 ;PCODE: $000000BF VOL: 0
 ;PCODE: $000000C0 VOL: 0
-; 0000 00C0     sam_num++;
 ;PCODE: $000000C1 VOL: 0
-; 0000 00C1     if(mux>4) dist_data[mux-5][sam_num] = ADCH;
 ;PCODE: $000000C2 VOL: 0
 ;PCODE: $000000C3 VOL: 0
+; 0000 00CD     else if(mux == 4) cds_data[sam_num] = ADCH;  //ADC값의 high값을 사용함
 ;PCODE: $000000C4 VOL: 0
 ;PCODE: $000000C5 VOL: 0
 ;PCODE: $000000C6 VOL: 0
@@ -412,73 +424,73 @@
 ;PCODE: $000000CB VOL: 0
 ;PCODE: $000000CC VOL: 0
 ;PCODE: $000000CD VOL: 0
+; 0000 00CE     else;
 ;PCODE: $000000CE VOL: 0
-; 0000 00C2     else if(mux == 4) cds_data[sam_num] = ADCH;  //ADC값의 high값을 사용함
 ;PCODE: $000000CF VOL: 0
 ;PCODE: $000000D0 VOL: 0
 ;PCODE: $000000D1 VOL: 0
+; 0000 00CF 
+; 0000 00D0     if(sam_num == num_sample)
 ;PCODE: $000000D2 VOL: 0
 ;PCODE: $000000D3 VOL: 0
 ;PCODE: $000000D4 VOL: 0
+; 0000 00D1     {
+; 0000 00D2         mux++;
 ;PCODE: $000000D5 VOL: 0
 ;PCODE: $000000D6 VOL: 0
 ;PCODE: $000000D7 VOL: 0
+; 0000 00D3         sam_num=0;
 ;PCODE: $000000D8 VOL: 0
-; 0000 00C3     else;
+; 0000 00D4         d_flag=1;
 ;PCODE: $000000D9 VOL: 0
 ;PCODE: $000000DA VOL: 0
+; 0000 00D5     }
+; 0000 00D6 
+; 0000 00D7     if(mux > 7)  mux = 4;    // PSD : PF5, 6, 7
 ;PCODE: $000000DB VOL: 0
 ;PCODE: $000000DC VOL: 0
-; 0000 00C4 
-; 0000 00C5     if(sam_num == num_sample)
 ;PCODE: $000000DD VOL: 0
 ;PCODE: $000000DE VOL: 0
 ;PCODE: $000000DF VOL: 0
-; 0000 00C6     {
-; 0000 00C7         mux++;
 ;PCODE: $000000E0 VOL: 0
+; 0000 00D8     ADMUX = mux | 0x60;
 ;PCODE: $000000E1 VOL: 0
 ;PCODE: $000000E2 VOL: 0
-; 0000 00C8         sam_num=0;
 ;PCODE: $000000E3 VOL: 0
-; 0000 00C9         d_flag=1;
 ;PCODE: $000000E4 VOL: 0
+; 0000 00D9     ADCSRA |= 0x40;
 ;PCODE: $000000E5 VOL: 0
-; 0000 00CA     }
-; 0000 00CB 
-; 0000 00CC     if(mux > 7)  mux = 4;    // PSD : PF5, 6, 7
 ;PCODE: $000000E6 VOL: 0
+; 0000 00DA }
 ;PCODE: $000000E7 VOL: 0
 ;PCODE: $000000E8 VOL: 0
 ;PCODE: $000000E9 VOL: 0
-;PCODE: $000000EA VOL: 0
-;PCODE: $000000EB VOL: 0
-; 0000 00CD     ADMUX = mux | 0x60;
-;PCODE: $000000EC VOL: 0
-;PCODE: $000000ED VOL: 0
-;PCODE: $000000EE VOL: 0
-;PCODE: $000000EF VOL: 0
-; 0000 00CE     ADCSRA |= 0x40;
-;PCODE: $000000F0 VOL: 0
-;PCODE: $000000F1 VOL: 0
-; 0000 00CF }
-;PCODE: $000000F2 VOL: 0
-;PCODE: $000000F3 VOL: 0
-;PCODE: $000000F4 VOL: 0
 ;
 ;// ************************************** About PSD *************************************************
 ;// Side distance mean
 ;void mean_dist(void)
-; 0000 00D4 {
-;PCODE: $000000F5 VOL: 0
-;PCODE: $000000F6 VOL: 0
-; 0000 00D5     unsigned char psd_num = 0; // counting variable for function
-; 0000 00D6     unsigned char num = 0; // counting variable for function
-; 0000 00D7     while(!d_flag);
-;PCODE: $000000F7 VOL: 0
-;PCODE: $000000F8 VOL: 0
+; 0000 00DF {
+;PCODE: $000000EA VOL: 0
+;PCODE: $000000EB VOL: 0
+; 0000 00E0     unsigned char psd_num = 0; // counting variable for function
+; 0000 00E1     unsigned char num = 0; // counting variable for function
+; 0000 00E2     while(!d_flag);
+;PCODE: $000000EC VOL: 0
+;PCODE: $000000ED VOL: 0
 ;	psd_num -> R17
 ;	num -> R16
+;PCODE: $000000EE VOL: 0
+;PCODE: $000000EF VOL: 0
+;PCODE: $000000F0 VOL: 0
+;PCODE: $000000F1 VOL: 0
+;PCODE: $000000F2 VOL: 0
+;PCODE: $000000F3 VOL: 0
+;PCODE: $000000F4 VOL: 0
+;PCODE: $000000F5 VOL: 0
+;PCODE: $000000F6 VOL: 0
+;PCODE: $000000F7 VOL: 0
+; 0000 00E3     for(psd_num = 0; psd_num < 3; psd_num++)
+;PCODE: $000000F8 VOL: 0
 ;PCODE: $000000F9 VOL: 0
 ;PCODE: $000000FA VOL: 0
 ;PCODE: $000000FB VOL: 0
@@ -487,9 +499,10 @@
 ;PCODE: $000000FE VOL: 0
 ;PCODE: $000000FF VOL: 0
 ;PCODE: $00000100 VOL: 0
+; 0000 00E4     {
+; 0000 00E5         for(num = 0; num < num_sample; num++)
 ;PCODE: $00000101 VOL: 0
 ;PCODE: $00000102 VOL: 0
-; 0000 00D8     for(psd_num = 0; psd_num < 3; psd_num++)
 ;PCODE: $00000103 VOL: 0
 ;PCODE: $00000104 VOL: 0
 ;PCODE: $00000105 VOL: 0
@@ -497,10 +510,9 @@
 ;PCODE: $00000107 VOL: 0
 ;PCODE: $00000108 VOL: 0
 ;PCODE: $00000109 VOL: 0
+; 0000 00E6             dist_sum[psd_num] += dist_data[psd_num][num];
 ;PCODE: $0000010A VOL: 0
 ;PCODE: $0000010B VOL: 0
-; 0000 00D9     {
-; 0000 00DA         for(num = 0; num < num_sample; num++)
 ;PCODE: $0000010C VOL: 0
 ;PCODE: $0000010D VOL: 0
 ;PCODE: $0000010E VOL: 0
@@ -510,7 +522,6 @@
 ;PCODE: $00000112 VOL: 0
 ;PCODE: $00000113 VOL: 0
 ;PCODE: $00000114 VOL: 0
-; 0000 00DB             dist_sum[psd_num] += dist_data[psd_num][num];
 ;PCODE: $00000115 VOL: 0
 ;PCODE: $00000116 VOL: 0
 ;PCODE: $00000117 VOL: 0
@@ -522,6 +533,7 @@
 ;PCODE: $0000011D VOL: 0
 ;PCODE: $0000011E VOL: 0
 ;PCODE: $0000011F VOL: 0
+; 0000 00E8 dist_mean[psd_num] = dist_sum[psd_num]/num_sample;
 ;PCODE: $00000120 VOL: 0
 ;PCODE: $00000121 VOL: 0
 ;PCODE: $00000122 VOL: 0
@@ -533,12 +545,12 @@
 ;PCODE: $00000128 VOL: 0
 ;PCODE: $00000129 VOL: 0
 ;PCODE: $0000012A VOL: 0
-; 0000 00DD dist_mean[psd_num] = dist_sum[psd_num]/num_sample;
 ;PCODE: $0000012B VOL: 0
 ;PCODE: $0000012C VOL: 0
 ;PCODE: $0000012D VOL: 0
 ;PCODE: $0000012E VOL: 0
 ;PCODE: $0000012F VOL: 0
+; 0000 00E9         dist_sum[psd_num] = 0;
 ;PCODE: $00000130 VOL: 0
 ;PCODE: $00000131 VOL: 0
 ;PCODE: $00000132 VOL: 0
@@ -546,300 +558,303 @@
 ;PCODE: $00000134 VOL: 0
 ;PCODE: $00000135 VOL: 0
 ;PCODE: $00000136 VOL: 0
+; 0000 00EA     }
 ;PCODE: $00000137 VOL: 0
 ;PCODE: $00000138 VOL: 0
 ;PCODE: $00000139 VOL: 0
 ;PCODE: $0000013A VOL: 0
-; 0000 00DE         dist_sum[psd_num] = 0;
 ;PCODE: $0000013B VOL: 0
+; 0000 00EB     d_flag=0;
 ;PCODE: $0000013C VOL: 0
 ;PCODE: $0000013D VOL: 0
+; 0000 00EC     //delay_ms(10);
+; 0000 00ED }
 ;PCODE: $0000013E VOL: 0
 ;PCODE: $0000013F VOL: 0
 ;PCODE: $00000140 VOL: 0
+;
+;//PSD test
+;void PSD_test(void)
+; 0000 00F1 {
 ;PCODE: $00000141 VOL: 0
-; 0000 00DF     }
 ;PCODE: $00000142 VOL: 0
+; 0000 00F2     unsigned char m = 0;
+; 0000 00F3     delay_ms(300);
 ;PCODE: $00000143 VOL: 0
+;	m -> R17
 ;PCODE: $00000144 VOL: 0
 ;PCODE: $00000145 VOL: 0
 ;PCODE: $00000146 VOL: 0
-; 0000 00E0     d_flag=0;
 ;PCODE: $00000147 VOL: 0
 ;PCODE: $00000148 VOL: 0
-; 0000 00E1     //delay_ms(10);
-; 0000 00E2 }
+; 0000 00F4 
+; 0000 00F5     while(Middle_switch_off)
 ;PCODE: $00000149 VOL: 0
 ;PCODE: $0000014A VOL: 0
 ;PCODE: $0000014B VOL: 0
-;//PSD test
-;void PSD_test(void)
-; 0000 00E5 {
 ;PCODE: $0000014C VOL: 0
+; 0000 00F6     {
+; 0000 00F7         mean_dist();
 ;PCODE: $0000014D VOL: 0
-; 0000 00E6     unsigned char m = 0;
-; 0000 00E7     delay_ms(300);
+; 0000 00F8 
+; 0000 00F9         lcd_clear();
 ;PCODE: $0000014E VOL: 0
-;	m -> R17
+; 0000 00FA         if(Left_switch_on) m++;
 ;PCODE: $0000014F VOL: 0
 ;PCODE: $00000150 VOL: 0
 ;PCODE: $00000151 VOL: 0
 ;PCODE: $00000152 VOL: 0
 ;PCODE: $00000153 VOL: 0
-; 0000 00E8 
-; 0000 00E9     while(Middle_switch_off)
+; 0000 00FB         if(Right_switch_on) m--;
 ;PCODE: $00000154 VOL: 0
 ;PCODE: $00000155 VOL: 0
 ;PCODE: $00000156 VOL: 0
 ;PCODE: $00000157 VOL: 0
-; 0000 00EA     {
-; 0000 00EB         mean_dist();
 ;PCODE: $00000158 VOL: 0
-; 0000 00EC 
-; 0000 00ED         lcd_clear();
 ;PCODE: $00000159 VOL: 0
-; 0000 00EE         if(Left_switch_on) m++;
+; 0000 00FC         if(m>2)  m = 0;
 ;PCODE: $0000015A VOL: 0
 ;PCODE: $0000015B VOL: 0
 ;PCODE: $0000015C VOL: 0
 ;PCODE: $0000015D VOL: 0
 ;PCODE: $0000015E VOL: 0
-; 0000 00EF         if(Right_switch_on) m--;
 ;PCODE: $0000015F VOL: 0
+; 0000 00FD 
+; 0000 00FE         lcd_clear();
 ;PCODE: $00000160 VOL: 0
 ;PCODE: $00000161 VOL: 0
+; 0000 00FF         lcd_gotoxy(0, 0);
 ;PCODE: $00000162 VOL: 0
 ;PCODE: $00000163 VOL: 0
 ;PCODE: $00000164 VOL: 0
-; 0000 00F0         if(m>2)  m = 0;
 ;PCODE: $00000165 VOL: 0
 ;PCODE: $00000166 VOL: 0
+; 0000 0100         lcd_putsf("Testing");
 ;PCODE: $00000167 VOL: 0
 ;PCODE: $00000168 VOL: 0
 ;PCODE: $00000169 VOL: 0
 ;PCODE: $0000016A VOL: 0
-; 0000 00F1 
-; 0000 00F2         lcd_clear();
+; 0000 0101 
+; 0000 0102         lcd_gotoxy(0, 1);
 ;PCODE: $0000016B VOL: 0
 ;PCODE: $0000016C VOL: 0
-; 0000 00F3         lcd_gotoxy(0, 0);
 ;PCODE: $0000016D VOL: 0
 ;PCODE: $0000016E VOL: 0
 ;PCODE: $0000016F VOL: 0
+; 0000 0103         sprintf(lcd_data, "%d : ", m);
 ;PCODE: $00000170 VOL: 0
 ;PCODE: $00000171 VOL: 0
-; 0000 00F4         lcd_putsf("Testing");
 ;PCODE: $00000172 VOL: 0
 ;PCODE: $00000173 VOL: 0
 ;PCODE: $00000174 VOL: 0
 ;PCODE: $00000175 VOL: 0
-; 0000 00F5 
-; 0000 00F6         lcd_gotoxy(0, 1);
 ;PCODE: $00000176 VOL: 0
 ;PCODE: $00000177 VOL: 0
 ;PCODE: $00000178 VOL: 0
 ;PCODE: $00000179 VOL: 0
 ;PCODE: $0000017A VOL: 0
-; 0000 00F7         sprintf(lcd_data, "%d : ", m);
 ;PCODE: $0000017B VOL: 0
+; 0000 0104         lcd_puts(lcd_data);
 ;PCODE: $0000017C VOL: 0
 ;PCODE: $0000017D VOL: 0
 ;PCODE: $0000017E VOL: 0
+; 0000 0105 
+; 0000 0106         lcd_gotoxy(5, 1);
 ;PCODE: $0000017F VOL: 0
 ;PCODE: $00000180 VOL: 0
 ;PCODE: $00000181 VOL: 0
 ;PCODE: $00000182 VOL: 0
 ;PCODE: $00000183 VOL: 0
+; 0000 0107         sprintf(lcd_data, "%d", dist_mean[m]);
 ;PCODE: $00000184 VOL: 0
 ;PCODE: $00000185 VOL: 0
 ;PCODE: $00000186 VOL: 0
-; 0000 00F8         lcd_puts(lcd_data);
 ;PCODE: $00000187 VOL: 0
 ;PCODE: $00000188 VOL: 0
 ;PCODE: $00000189 VOL: 0
-; 0000 00F9 
-; 0000 00FA         lcd_gotoxy(5, 1);
 ;PCODE: $0000018A VOL: 0
 ;PCODE: $0000018B VOL: 0
 ;PCODE: $0000018C VOL: 0
 ;PCODE: $0000018D VOL: 0
 ;PCODE: $0000018E VOL: 0
-; 0000 00FB         sprintf(lcd_data, "%d", dist_mean[m]);
 ;PCODE: $0000018F VOL: 0
 ;PCODE: $00000190 VOL: 0
 ;PCODE: $00000191 VOL: 0
 ;PCODE: $00000192 VOL: 0
+; 0000 0108         lcd_puts(lcd_data);
 ;PCODE: $00000193 VOL: 0
 ;PCODE: $00000194 VOL: 0
 ;PCODE: $00000195 VOL: 0
+; 0000 0109 
+; 0000 010A         delay_ms(300);
 ;PCODE: $00000196 VOL: 0
 ;PCODE: $00000197 VOL: 0
 ;PCODE: $00000198 VOL: 0
+; 0000 010B     }
 ;PCODE: $00000199 VOL: 0
 ;PCODE: $0000019A VOL: 0
+; 0000 010C }
 ;PCODE: $0000019B VOL: 0
 ;PCODE: $0000019C VOL: 0
 ;PCODE: $0000019D VOL: 0
-; 0000 00FC         lcd_puts(lcd_data);
-;PCODE: $0000019E VOL: 0
-;PCODE: $0000019F VOL: 0
-;PCODE: $000001A0 VOL: 0
-; 0000 00FD 
-; 0000 00FE         delay_ms(300);
-;PCODE: $000001A1 VOL: 0
-;PCODE: $000001A2 VOL: 0
-;PCODE: $000001A3 VOL: 0
-; 0000 00FF     }
-;PCODE: $000001A4 VOL: 0
-;PCODE: $000001A5 VOL: 0
-; 0000 0100 }
-;PCODE: $000001A6 VOL: 0
-;PCODE: $000001A7 VOL: 0
-;PCODE: $000001A8 VOL: 0
 ;
 ;//PSD tuning
 ;void PSD_tuning(void)
-; 0000 0104 {
-;PCODE: $000001A9 VOL: 0
-;PCODE: $000001AA VOL: 0
-; 0000 0105     unsigned char psd = 1;
-; 0000 0106     unsigned char mode = 0;
-; 0000 0107 
-; 0000 0108     delay_ms(500);
-;PCODE: $000001AB VOL: 0
-;PCODE: $000001AC VOL: 0
+; 0000 0110 {
+;PCODE: $0000019E VOL: 0
+;PCODE: $0000019F VOL: 0
+; 0000 0111     unsigned char psd = 1;
+; 0000 0112     unsigned char mode = 0;
+; 0000 0113 
+; 0000 0114     delay_ms(500);
+;PCODE: $000001A0 VOL: 0
+;PCODE: $000001A1 VOL: 0
 ;	psd -> R17
 ;	mode -> R16
+;PCODE: $000001A2 VOL: 0
+;PCODE: $000001A3 VOL: 0
+;PCODE: $000001A4 VOL: 0
+;PCODE: $000001A5 VOL: 0
+;PCODE: $000001A6 VOL: 0
+;PCODE: $000001A7 VOL: 0
+;PCODE: $000001A8 VOL: 0
+; 0000 0115 
+; 0000 0116     while(Middle_switch_off)
+;PCODE: $000001A9 VOL: 0
+;PCODE: $000001AA VOL: 0
+;PCODE: $000001AB VOL: 0
+;PCODE: $000001AC VOL: 0
+; 0000 0117     {
+; 0000 0118         mean_dist();
 ;PCODE: $000001AD VOL: 0
+; 0000 0119 
+; 0000 011A         lcd_clear();
 ;PCODE: $000001AE VOL: 0
+; 0000 011B         if(Left_switch_on) mode++;
 ;PCODE: $000001AF VOL: 0
 ;PCODE: $000001B0 VOL: 0
 ;PCODE: $000001B1 VOL: 0
 ;PCODE: $000001B2 VOL: 0
 ;PCODE: $000001B3 VOL: 0
-; 0000 0109 
-; 0000 010A     while(Middle_switch_off)
+; 0000 011C         if(Right_switch_on) mode--;
 ;PCODE: $000001B4 VOL: 0
 ;PCODE: $000001B5 VOL: 0
 ;PCODE: $000001B6 VOL: 0
 ;PCODE: $000001B7 VOL: 0
-; 0000 010B     {
-; 0000 010C         mean_dist();
 ;PCODE: $000001B8 VOL: 0
-; 0000 010D 
-; 0000 010E         lcd_clear();
 ;PCODE: $000001B9 VOL: 0
-; 0000 010F         if(Left_switch_on) mode++;
+; 0000 011D         if(mode>2)  mode = 0;
 ;PCODE: $000001BA VOL: 0
 ;PCODE: $000001BB VOL: 0
 ;PCODE: $000001BC VOL: 0
 ;PCODE: $000001BD VOL: 0
 ;PCODE: $000001BE VOL: 0
-; 0000 0110         if(Right_switch_on) mode--;
 ;PCODE: $000001BF VOL: 0
+; 0000 011E 
+; 0000 011F         lcd_gotoxy(0, 0);
 ;PCODE: $000001C0 VOL: 0
 ;PCODE: $000001C1 VOL: 0
 ;PCODE: $000001C2 VOL: 0
 ;PCODE: $000001C3 VOL: 0
 ;PCODE: $000001C4 VOL: 0
-; 0000 0111         if(mode>2)  mode = 0;
 ;PCODE: $000001C5 VOL: 0
+; 0000 0120         sprintf(lcd_data, "%d", mode);
 ;PCODE: $000001C6 VOL: 0
 ;PCODE: $000001C7 VOL: 0
 ;PCODE: $000001C8 VOL: 0
 ;PCODE: $000001C9 VOL: 0
 ;PCODE: $000001CA VOL: 0
-; 0000 0112 
-; 0000 0113         lcd_gotoxy(0, 0);
 ;PCODE: $000001CB VOL: 0
 ;PCODE: $000001CC VOL: 0
 ;PCODE: $000001CD VOL: 0
 ;PCODE: $000001CE VOL: 0
 ;PCODE: $000001CF VOL: 0
 ;PCODE: $000001D0 VOL: 0
-; 0000 0114         sprintf(lcd_data, "%d", mode);
 ;PCODE: $000001D1 VOL: 0
+; 0000 0121         lcd_puts(lcd_data);
 ;PCODE: $000001D2 VOL: 0
 ;PCODE: $000001D3 VOL: 0
 ;PCODE: $000001D4 VOL: 0
+; 0000 0122 
+; 0000 0123         lcd_gotoxy(1, 0);
 ;PCODE: $000001D5 VOL: 0
 ;PCODE: $000001D6 VOL: 0
 ;PCODE: $000001D7 VOL: 0
 ;PCODE: $000001D8 VOL: 0
 ;PCODE: $000001D9 VOL: 0
+; 0000 0124         lcd_putsf("MAX");
 ;PCODE: $000001DA VOL: 0
 ;PCODE: $000001DB VOL: 0
 ;PCODE: $000001DC VOL: 0
-; 0000 0115         lcd_puts(lcd_data);
 ;PCODE: $000001DD VOL: 0
+; 0000 0125 
+; 0000 0126         lcd_gotoxy(5, 0);
 ;PCODE: $000001DE VOL: 0
 ;PCODE: $000001DF VOL: 0
-; 0000 0116 
-; 0000 0117         lcd_gotoxy(1, 0);
 ;PCODE: $000001E0 VOL: 0
 ;PCODE: $000001E1 VOL: 0
 ;PCODE: $000001E2 VOL: 0
+; 0000 0127         lcd_putsf("min");
 ;PCODE: $000001E3 VOL: 0
 ;PCODE: $000001E4 VOL: 0
-; 0000 0118         lcd_putsf("MAX");
 ;PCODE: $000001E5 VOL: 0
 ;PCODE: $000001E6 VOL: 0
+; 0000 0128 
+; 0000 0129         lcd_gotoxy(0, 1);
 ;PCODE: $000001E7 VOL: 0
 ;PCODE: $000001E8 VOL: 0
-; 0000 0119 
-; 0000 011A         lcd_gotoxy(5, 0);
 ;PCODE: $000001E9 VOL: 0
 ;PCODE: $000001EA VOL: 0
 ;PCODE: $000001EB VOL: 0
+; 0000 012A         sprintf(lcd_data, "%d", dist_max[mode]);
 ;PCODE: $000001EC VOL: 0
 ;PCODE: $000001ED VOL: 0
-; 0000 011B         lcd_putsf("min");
 ;PCODE: $000001EE VOL: 0
 ;PCODE: $000001EF VOL: 0
 ;PCODE: $000001F0 VOL: 0
 ;PCODE: $000001F1 VOL: 0
-; 0000 011C 
-; 0000 011D         lcd_gotoxy(0, 1);
 ;PCODE: $000001F2 VOL: 0
 ;PCODE: $000001F3 VOL: 0
 ;PCODE: $000001F4 VOL: 0
 ;PCODE: $000001F5 VOL: 0
 ;PCODE: $000001F6 VOL: 0
-; 0000 011E         sprintf(lcd_data, "%d", dist_max[mode]);
 ;PCODE: $000001F7 VOL: 0
 ;PCODE: $000001F8 VOL: 0
 ;PCODE: $000001F9 VOL: 0
 ;PCODE: $000001FA VOL: 0
+; 0000 012B         lcd_puts(lcd_data);
 ;PCODE: $000001FB VOL: 0
 ;PCODE: $000001FC VOL: 0
 ;PCODE: $000001FD VOL: 0
+; 0000 012C 
+; 0000 012D         lcd_gotoxy(5, 1);
 ;PCODE: $000001FE VOL: 0
 ;PCODE: $000001FF VOL: 0
 ;PCODE: $00000200 VOL: 0
 ;PCODE: $00000201 VOL: 0
 ;PCODE: $00000202 VOL: 0
+; 0000 012E         sprintf(lcd_data, "%d", dist_min[mode]);
 ;PCODE: $00000203 VOL: 0
 ;PCODE: $00000204 VOL: 0
 ;PCODE: $00000205 VOL: 0
-; 0000 011F         lcd_puts(lcd_data);
 ;PCODE: $00000206 VOL: 0
 ;PCODE: $00000207 VOL: 0
 ;PCODE: $00000208 VOL: 0
-; 0000 0120 
-; 0000 0121         lcd_gotoxy(5, 1);
 ;PCODE: $00000209 VOL: 0
 ;PCODE: $0000020A VOL: 0
 ;PCODE: $0000020B VOL: 0
 ;PCODE: $0000020C VOL: 0
 ;PCODE: $0000020D VOL: 0
-; 0000 0122         sprintf(lcd_data, "%d", dist_min[mode]);
 ;PCODE: $0000020E VOL: 0
 ;PCODE: $0000020F VOL: 0
 ;PCODE: $00000210 VOL: 0
 ;PCODE: $00000211 VOL: 0
+; 0000 012F         lcd_puts(lcd_data);
 ;PCODE: $00000212 VOL: 0
 ;PCODE: $00000213 VOL: 0
 ;PCODE: $00000214 VOL: 0
+; 0000 0130 
+; 0000 0131         if(dist_mean[psd] < dist_min[psd]) dist_min[psd] = dist_mean[psd];
 ;PCODE: $00000215 VOL: 0
 ;PCODE: $00000216 VOL: 0
 ;PCODE: $00000217 VOL: 0
@@ -848,12 +863,9 @@
 ;PCODE: $0000021A VOL: 0
 ;PCODE: $0000021B VOL: 0
 ;PCODE: $0000021C VOL: 0
-; 0000 0123         lcd_puts(lcd_data);
 ;PCODE: $0000021D VOL: 0
 ;PCODE: $0000021E VOL: 0
 ;PCODE: $0000021F VOL: 0
-; 0000 0124 
-; 0000 0125         if(dist_mean[psd] < dist_min[psd]) dist_min[psd] = dist_mean[psd];
 ;PCODE: $00000220 VOL: 0
 ;PCODE: $00000221 VOL: 0
 ;PCODE: $00000222 VOL: 0
@@ -861,6 +873,7 @@
 ;PCODE: $00000224 VOL: 0
 ;PCODE: $00000225 VOL: 0
 ;PCODE: $00000226 VOL: 0
+; 0000 0132         if(dist_mean[psd] > dist_max[psd]) dist_max[psd] = dist_mean[psd];
 ;PCODE: $00000227 VOL: 0
 ;PCODE: $00000228 VOL: 0
 ;PCODE: $00000229 VOL: 0
@@ -872,7 +885,6 @@
 ;PCODE: $0000022F VOL: 0
 ;PCODE: $00000230 VOL: 0
 ;PCODE: $00000231 VOL: 0
-; 0000 0126         if(dist_mean[psd] > dist_max[psd]) dist_max[psd] = dist_mean[psd];
 ;PCODE: $00000232 VOL: 0
 ;PCODE: $00000233 VOL: 0
 ;PCODE: $00000234 VOL: 0
@@ -881,59 +893,60 @@
 ;PCODE: $00000237 VOL: 0
 ;PCODE: $00000238 VOL: 0
 ;PCODE: $00000239 VOL: 0
+; 0000 0133 
+; 0000 0134         delay_ms(100);
 ;PCODE: $0000023A VOL: 0
 ;PCODE: $0000023B VOL: 0
 ;PCODE: $0000023C VOL: 0
 ;PCODE: $0000023D VOL: 0
+; 0000 0135         psd++;
 ;PCODE: $0000023E VOL: 0
 ;PCODE: $0000023F VOL: 0
+; 0000 0136         if(psd > 2) psd=0;
 ;PCODE: $00000240 VOL: 0
 ;PCODE: $00000241 VOL: 0
 ;PCODE: $00000242 VOL: 0
 ;PCODE: $00000243 VOL: 0
 ;PCODE: $00000244 VOL: 0
-; 0000 0127 
-; 0000 0128         delay_ms(100);
+; 0000 0137     }
 ;PCODE: $00000245 VOL: 0
 ;PCODE: $00000246 VOL: 0
 ;PCODE: $00000247 VOL: 0
+; 0000 0138 }
 ;PCODE: $00000248 VOL: 0
-; 0000 0129         psd++;
 ;PCODE: $00000249 VOL: 0
 ;PCODE: $0000024A VOL: 0
-; 0000 012A         if(psd > 2) psd=0;
-;PCODE: $0000024B VOL: 0
-;PCODE: $0000024C VOL: 0
-;PCODE: $0000024D VOL: 0
-;PCODE: $0000024E VOL: 0
-;PCODE: $0000024F VOL: 0
-; 0000 012B     }
-;PCODE: $00000250 VOL: 0
-;PCODE: $00000251 VOL: 0
-;PCODE: $00000252 VOL: 0
-; 0000 012C }
-;PCODE: $00000253 VOL: 0
-;PCODE: $00000254 VOL: 0
-;PCODE: $00000255 VOL: 0
 ;
 ;// ************************************* About cds *******************************************************
 ;void mean_cds(void)
-; 0000 0130 {
+; 0000 013C {
+;PCODE: $0000024B VOL: 0
+;PCODE: $0000024C VOL: 0
+; 0000 013D     unsigned char num = 0; // counting variable for function
+; 0000 013E     while(!d_flag);
+;PCODE: $0000024D VOL: 0
+;	num -> R17
+;PCODE: $0000024E VOL: 0
+;PCODE: $0000024F VOL: 0
+;PCODE: $00000250 VOL: 0
+;PCODE: $00000251 VOL: 0
+;PCODE: $00000252 VOL: 0
+;PCODE: $00000253 VOL: 0
+;PCODE: $00000254 VOL: 0
+;PCODE: $00000255 VOL: 0
+; 0000 013F     for(num = 0; num < num_sample; num++)
 ;PCODE: $00000256 VOL: 0
 ;PCODE: $00000257 VOL: 0
-; 0000 0131     unsigned char num = 0; // counting variable for function
-; 0000 0132     while(!d_flag);
 ;PCODE: $00000258 VOL: 0
-;	num -> R17
 ;PCODE: $00000259 VOL: 0
 ;PCODE: $0000025A VOL: 0
 ;PCODE: $0000025B VOL: 0
 ;PCODE: $0000025C VOL: 0
 ;PCODE: $0000025D VOL: 0
 ;PCODE: $0000025E VOL: 0
+; 0000 0140         cds_sum += cds_data[num];
 ;PCODE: $0000025F VOL: 0
 ;PCODE: $00000260 VOL: 0
-; 0000 0133     for(num = 0; num < num_sample; num++)
 ;PCODE: $00000261 VOL: 0
 ;PCODE: $00000262 VOL: 0
 ;PCODE: $00000263 VOL: 0
@@ -943,357 +956,354 @@
 ;PCODE: $00000267 VOL: 0
 ;PCODE: $00000268 VOL: 0
 ;PCODE: $00000269 VOL: 0
-; 0000 0134         cds_sum += cds_data[num];
 ;PCODE: $0000026A VOL: 0
 ;PCODE: $0000026B VOL: 0
+; 0000 0142 cds_mean = cds_sum/num_sample;
 ;PCODE: $0000026C VOL: 0
 ;PCODE: $0000026D VOL: 0
 ;PCODE: $0000026E VOL: 0
 ;PCODE: $0000026F VOL: 0
 ;PCODE: $00000270 VOL: 0
+; 0000 0143     cds_sum = 0;
 ;PCODE: $00000271 VOL: 0
 ;PCODE: $00000272 VOL: 0
+; 0000 0144 
+; 0000 0145     d_flag=0;
 ;PCODE: $00000273 VOL: 0
 ;PCODE: $00000274 VOL: 0
+; 0000 0146     //delay_ms(10);
+; 0000 0147 }
 ;PCODE: $00000275 VOL: 0
 ;PCODE: $00000276 VOL: 0
-; 0000 0136 cds_mean = cds_sum/num_sample;
 ;PCODE: $00000277 VOL: 0
-;PCODE: $00000278 VOL: 0
-;PCODE: $00000279 VOL: 0
-;PCODE: $0000027A VOL: 0
-;PCODE: $0000027B VOL: 0
-; 0000 0137     cds_sum = 0;
-;PCODE: $0000027C VOL: 0
-;PCODE: $0000027D VOL: 0
-; 0000 0138 
-; 0000 0139     d_flag=0;
-;PCODE: $0000027E VOL: 0
-;PCODE: $0000027F VOL: 0
-; 0000 013A     //delay_ms(10);
-; 0000 013B }
-;PCODE: $00000280 VOL: 0
-;PCODE: $00000281 VOL: 0
-;PCODE: $00000282 VOL: 0
 ;
 ;void cds_test(void)
-; 0000 013E {
+; 0000 014A {
+;PCODE: $00000278 VOL: 0
+;PCODE: $00000279 VOL: 0
+; 0000 014B     delay_ms(300);
+;PCODE: $0000027A VOL: 0
+;PCODE: $0000027B VOL: 0
+;PCODE: $0000027C VOL: 0
+; 0000 014C 
+; 0000 014D     while(Middle_switch_off)
+;PCODE: $0000027D VOL: 0
+;PCODE: $0000027E VOL: 0
+;PCODE: $0000027F VOL: 0
+;PCODE: $00000280 VOL: 0
+; 0000 014E     {
+; 0000 014F         mean_cds();
+;PCODE: $00000281 VOL: 0
+; 0000 0150 
+; 0000 0151         lcd_clear();
+;PCODE: $00000282 VOL: 0
+; 0000 0152         lcd_gotoxy(0, 0);
 ;PCODE: $00000283 VOL: 0
 ;PCODE: $00000284 VOL: 0
-; 0000 013F     delay_ms(300);
 ;PCODE: $00000285 VOL: 0
 ;PCODE: $00000286 VOL: 0
 ;PCODE: $00000287 VOL: 0
-; 0000 0140 
-; 0000 0141     while(Middle_switch_off)
+; 0000 0153         lcd_putsf("Testing");
 ;PCODE: $00000288 VOL: 0
 ;PCODE: $00000289 VOL: 0
 ;PCODE: $0000028A VOL: 0
 ;PCODE: $0000028B VOL: 0
-; 0000 0142     {
-; 0000 0143         mean_cds();
+; 0000 0154 
+; 0000 0155         lcd_gotoxy(0, 1);
 ;PCODE: $0000028C VOL: 0
-; 0000 0144 
-; 0000 0145         lcd_clear();
 ;PCODE: $0000028D VOL: 0
-; 0000 0146         lcd_gotoxy(0, 0);
 ;PCODE: $0000028E VOL: 0
 ;PCODE: $0000028F VOL: 0
 ;PCODE: $00000290 VOL: 0
+; 0000 0156         sprintf(lcd_data, "%d", cds_mean);
 ;PCODE: $00000291 VOL: 0
 ;PCODE: $00000292 VOL: 0
-; 0000 0147         lcd_putsf("Testing");
 ;PCODE: $00000293 VOL: 0
 ;PCODE: $00000294 VOL: 0
 ;PCODE: $00000295 VOL: 0
 ;PCODE: $00000296 VOL: 0
-; 0000 0148 
-; 0000 0149         lcd_gotoxy(0, 1);
 ;PCODE: $00000297 VOL: 0
 ;PCODE: $00000298 VOL: 0
 ;PCODE: $00000299 VOL: 0
 ;PCODE: $0000029A VOL: 0
 ;PCODE: $0000029B VOL: 0
-; 0000 014A         sprintf(lcd_data, "%d", cds_mean);
 ;PCODE: $0000029C VOL: 0
+; 0000 0157         lcd_puts(lcd_data);
 ;PCODE: $0000029D VOL: 0
 ;PCODE: $0000029E VOL: 0
 ;PCODE: $0000029F VOL: 0
+; 0000 0158 
+; 0000 0159         delay_ms(200);
 ;PCODE: $000002A0 VOL: 0
 ;PCODE: $000002A1 VOL: 0
 ;PCODE: $000002A2 VOL: 0
+; 0000 015A     }
 ;PCODE: $000002A3 VOL: 0
 ;PCODE: $000002A4 VOL: 0
+; 0000 015B }
 ;PCODE: $000002A5 VOL: 0
 ;PCODE: $000002A6 VOL: 0
-;PCODE: $000002A7 VOL: 0
-; 0000 014B         lcd_puts(lcd_data);
-;PCODE: $000002A8 VOL: 0
-;PCODE: $000002A9 VOL: 0
-;PCODE: $000002AA VOL: 0
-; 0000 014C 
-; 0000 014D         delay_ms(200);
-;PCODE: $000002AB VOL: 0
-;PCODE: $000002AC VOL: 0
-;PCODE: $000002AD VOL: 0
-; 0000 014E     }
-;PCODE: $000002AE VOL: 0
-;PCODE: $000002AF VOL: 0
-; 0000 014F }
-;PCODE: $000002B0 VOL: 0
-;PCODE: $000002B1 VOL: 0
 ;
 ;//cds tuning
 ;void cds_tuning(void)
-; 0000 0153 {
+; 0000 015F {
+;PCODE: $000002A7 VOL: 0
+;PCODE: $000002A8 VOL: 0
+; 0000 0160     delay_ms(500);
+;PCODE: $000002A9 VOL: 0
+;PCODE: $000002AA VOL: 0
+;PCODE: $000002AB VOL: 0
+; 0000 0161 
+; 0000 0162     while(Middle_switch_off)
+;PCODE: $000002AC VOL: 0
+;PCODE: $000002AD VOL: 0
+;PCODE: $000002AE VOL: 0
+;PCODE: $000002AF VOL: 0
+; 0000 0163     {
+; 0000 0164         mean_cds();
+;PCODE: $000002B0 VOL: 0
+; 0000 0165 
+; 0000 0166         lcd_clear();
+;PCODE: $000002B1 VOL: 0
+; 0000 0167         lcd_gotoxy(0, 0);
 ;PCODE: $000002B2 VOL: 0
 ;PCODE: $000002B3 VOL: 0
-; 0000 0154     delay_ms(500);
 ;PCODE: $000002B4 VOL: 0
 ;PCODE: $000002B5 VOL: 0
 ;PCODE: $000002B6 VOL: 0
-; 0000 0155 
-; 0000 0156     while(Middle_switch_off)
+; 0000 0168         lcd_putsf("MAX");
 ;PCODE: $000002B7 VOL: 0
 ;PCODE: $000002B8 VOL: 0
 ;PCODE: $000002B9 VOL: 0
 ;PCODE: $000002BA VOL: 0
-; 0000 0157     {
-; 0000 0158         mean_cds();
+; 0000 0169 
+; 0000 016A         lcd_gotoxy(5, 0);
 ;PCODE: $000002BB VOL: 0
-; 0000 0159 
-; 0000 015A         lcd_clear();
 ;PCODE: $000002BC VOL: 0
-; 0000 015B         lcd_gotoxy(0, 0);
 ;PCODE: $000002BD VOL: 0
 ;PCODE: $000002BE VOL: 0
 ;PCODE: $000002BF VOL: 0
+; 0000 016B         lcd_putsf("min");
 ;PCODE: $000002C0 VOL: 0
 ;PCODE: $000002C1 VOL: 0
-; 0000 015C         lcd_putsf("MAX");
 ;PCODE: $000002C2 VOL: 0
 ;PCODE: $000002C3 VOL: 0
+; 0000 016C 
+; 0000 016D         lcd_gotoxy(0, 1);
 ;PCODE: $000002C4 VOL: 0
 ;PCODE: $000002C5 VOL: 0
-; 0000 015D 
-; 0000 015E         lcd_gotoxy(5, 0);
 ;PCODE: $000002C6 VOL: 0
 ;PCODE: $000002C7 VOL: 0
 ;PCODE: $000002C8 VOL: 0
+; 0000 016E         sprintf(lcd_data, "%d", cds_max);
 ;PCODE: $000002C9 VOL: 0
 ;PCODE: $000002CA VOL: 0
-; 0000 015F         lcd_putsf("min");
 ;PCODE: $000002CB VOL: 0
 ;PCODE: $000002CC VOL: 0
 ;PCODE: $000002CD VOL: 0
 ;PCODE: $000002CE VOL: 0
-; 0000 0160 
-; 0000 0161         lcd_gotoxy(0, 1);
 ;PCODE: $000002CF VOL: 0
 ;PCODE: $000002D0 VOL: 0
 ;PCODE: $000002D1 VOL: 0
 ;PCODE: $000002D2 VOL: 0
 ;PCODE: $000002D3 VOL: 0
-; 0000 0162         sprintf(lcd_data, "%d", cds_max);
 ;PCODE: $000002D4 VOL: 0
+; 0000 016F         lcd_puts(lcd_data);
 ;PCODE: $000002D5 VOL: 0
 ;PCODE: $000002D6 VOL: 0
 ;PCODE: $000002D7 VOL: 0
+; 0000 0170 
+; 0000 0171         lcd_gotoxy(5, 1);
 ;PCODE: $000002D8 VOL: 0
 ;PCODE: $000002D9 VOL: 0
 ;PCODE: $000002DA VOL: 0
 ;PCODE: $000002DB VOL: 0
 ;PCODE: $000002DC VOL: 0
+; 0000 0172         sprintf(lcd_data, "%d", cds_min);
 ;PCODE: $000002DD VOL: 0
 ;PCODE: $000002DE VOL: 0
 ;PCODE: $000002DF VOL: 0
-; 0000 0163         lcd_puts(lcd_data);
 ;PCODE: $000002E0 VOL: 0
 ;PCODE: $000002E1 VOL: 0
 ;PCODE: $000002E2 VOL: 0
-; 0000 0164 
-; 0000 0165         lcd_gotoxy(5, 1);
 ;PCODE: $000002E3 VOL: 0
 ;PCODE: $000002E4 VOL: 0
 ;PCODE: $000002E5 VOL: 0
 ;PCODE: $000002E6 VOL: 0
 ;PCODE: $000002E7 VOL: 0
-; 0000 0166         sprintf(lcd_data, "%d", cds_min);
 ;PCODE: $000002E8 VOL: 0
+; 0000 0173         lcd_puts(lcd_data);
 ;PCODE: $000002E9 VOL: 0
 ;PCODE: $000002EA VOL: 0
 ;PCODE: $000002EB VOL: 0
+; 0000 0174 
+; 0000 0175         if(cds_mean < cds_min) cds_min = cds_mean;
 ;PCODE: $000002EC VOL: 0
 ;PCODE: $000002ED VOL: 0
 ;PCODE: $000002EE VOL: 0
 ;PCODE: $000002EF VOL: 0
 ;PCODE: $000002F0 VOL: 0
 ;PCODE: $000002F1 VOL: 0
+; 0000 0176         if(cds_mean > cds_max) cds_max = cds_mean;
 ;PCODE: $000002F2 VOL: 0
 ;PCODE: $000002F3 VOL: 0
-; 0000 0167         lcd_puts(lcd_data);
 ;PCODE: $000002F4 VOL: 0
 ;PCODE: $000002F5 VOL: 0
 ;PCODE: $000002F6 VOL: 0
-; 0000 0168 
-; 0000 0169         if(cds_mean < cds_min) cds_min = cds_mean;
 ;PCODE: $000002F7 VOL: 0
 ;PCODE: $000002F8 VOL: 0
+; 0000 0177 
+; 0000 0178         delay_ms(100);
 ;PCODE: $000002F9 VOL: 0
 ;PCODE: $000002FA VOL: 0
 ;PCODE: $000002FB VOL: 0
 ;PCODE: $000002FC VOL: 0
-; 0000 016A         if(cds_mean > cds_max) cds_max = cds_mean;
+; 0000 0179     }
 ;PCODE: $000002FD VOL: 0
 ;PCODE: $000002FE VOL: 0
+; 0000 017A }
 ;PCODE: $000002FF VOL: 0
 ;PCODE: $00000300 VOL: 0
+;
+;// *********************************** About Motor **********************************************
+;void motor_phase_setting(char p_mode)
+; 0000 017E {
 ;PCODE: $00000301 VOL: 0
 ;PCODE: $00000302 VOL: 0
+; 0000 017F     int phasing;
+; 0000 0180     // p_mode = 0 : forward
+; 0000 0181     // p_mode = 1 : backward
+; 0000 0182     if(!p_mode)
 ;PCODE: $00000303 VOL: 0
-; 0000 016B 
-; 0000 016C         delay_ms(100);
 ;PCODE: $00000304 VOL: 0
+;	p_mode -> Y+2
+;	phasing -> R16,R17
 ;PCODE: $00000305 VOL: 0
 ;PCODE: $00000306 VOL: 0
 ;PCODE: $00000307 VOL: 0
-; 0000 016D     }
+; 0000 0183     {
+; 0000 0184         for(phasing = 0; phasing < 8; phasing++)
 ;PCODE: $00000308 VOL: 0
 ;PCODE: $00000309 VOL: 0
-; 0000 016E }
 ;PCODE: $0000030A VOL: 0
 ;PCODE: $0000030B VOL: 0
-;
-;// *********************************** About Motor **********************************************
-;void initiation(void)
-; 0000 0172 {
 ;PCODE: $0000030C VOL: 0
 ;PCODE: $0000030D VOL: 0
-; 0000 0173     //타이머 관련 초기화
-; 0000 0174     OCRr = 65535;
 ;PCODE: $0000030E VOL: 0
 ;PCODE: $0000030F VOL: 0
-; 0000 0175     OCRl = 65535;
 ;PCODE: $00000310 VOL: 0
+; 0000 0185         {
+; 0000 0186             RMotorPhase_real[phasing] = RMotorPhase_F[phasing];
 ;PCODE: $00000311 VOL: 0
-; 0000 0176     // Step initiation
-; 0000 0177     step = 0;
 ;PCODE: $00000312 VOL: 0
 ;PCODE: $00000313 VOL: 0
-; 0000 0178     Motor_on;
 ;PCODE: $00000314 VOL: 0
 ;PCODE: $00000315 VOL: 0
 ;PCODE: $00000316 VOL: 0
 ;PCODE: $00000317 VOL: 0
-; 0000 0179 }
 ;PCODE: $00000318 VOL: 0
+; 0000 0187             LMotorPhase_real[phasing] = LMotorPhase_F[phasing];
 ;PCODE: $00000319 VOL: 0
-;
-;void motor_off(void)
-; 0000 017C {
 ;PCODE: $0000031A VOL: 0
 ;PCODE: $0000031B VOL: 0
-; 0000 017D     TableIndexTarget = 0;
 ;PCODE: $0000031C VOL: 0
 ;PCODE: $0000031D VOL: 0
-; 0000 017E     stop_flag = 1;
 ;PCODE: $0000031E VOL: 0
 ;PCODE: $0000031F VOL: 0
-; 0000 017F     while((LaccTableIndex>0) || (RaccTableIndex>0))
 ;PCODE: $00000320 VOL: 0
+; 0000 0188         }
 ;PCODE: $00000321 VOL: 0
 ;PCODE: $00000322 VOL: 0
 ;PCODE: $00000323 VOL: 0
 ;PCODE: $00000324 VOL: 0
 ;PCODE: $00000325 VOL: 0
+; 0000 0189     }
+; 0000 018A 
+; 0000 018B     else
 ;PCODE: $00000326 VOL: 0
 ;PCODE: $00000327 VOL: 0
+; 0000 018C     {
+; 0000 018D         for(phasing = 0; phasing < 8; phasing++)
 ;PCODE: $00000328 VOL: 0
-; 0000 0180     {
-; 0000 0181         TableIndexTarget = 0;
 ;PCODE: $00000329 VOL: 0
 ;PCODE: $0000032A VOL: 0
-; 0000 0182     }
 ;PCODE: $0000032B VOL: 0
 ;PCODE: $0000032C VOL: 0
-; 0000 0183     stop_flag = 0;
 ;PCODE: $0000032D VOL: 0
 ;PCODE: $0000032E VOL: 0
-; 0000 0184     Motor_off;
 ;PCODE: $0000032F VOL: 0
 ;PCODE: $00000330 VOL: 0
+; 0000 018E         {
+; 0000 018F             RMotorPhase_real[phasing] = RMotorPhase_B[phasing];
 ;PCODE: $00000331 VOL: 0
 ;PCODE: $00000332 VOL: 0
-; 0000 0185 
-; 0000 0186     PORTC = 0x00;
 ;PCODE: $00000333 VOL: 0
 ;PCODE: $00000334 VOL: 0
-; 0000 0187     TableIndexTarget = SearchTableIndex;
 ;PCODE: $00000335 VOL: 0
 ;PCODE: $00000336 VOL: 0
-; 0000 0188     stop_condition = 0;
 ;PCODE: $00000337 VOL: 0
 ;PCODE: $00000338 VOL: 0
-; 0000 0189 }
+; 0000 0190             LMotorPhase_real[phasing] = LMotorPhase_B[phasing];
 ;PCODE: $00000339 VOL: 0
 ;PCODE: $0000033A VOL: 0
-;
-;void motor_test(void)
-; 0000 018C {
 ;PCODE: $0000033B VOL: 0
 ;PCODE: $0000033C VOL: 0
-; 0000 018D     lcd_clear();
 ;PCODE: $0000033D VOL: 0
-; 0000 018E     delay_ms(500);
 ;PCODE: $0000033E VOL: 0
 ;PCODE: $0000033F VOL: 0
 ;PCODE: $00000340 VOL: 0
-; 0000 018F     lcd_gotoxy(0, 0);
+; 0000 0191         }
 ;PCODE: $00000341 VOL: 0
 ;PCODE: $00000342 VOL: 0
 ;PCODE: $00000343 VOL: 0
 ;PCODE: $00000344 VOL: 0
 ;PCODE: $00000345 VOL: 0
-; 0000 0190     lcd_putsf("TESTing");
+; 0000 0192     }
 ;PCODE: $00000346 VOL: 0
+; 0000 0193 }
 ;PCODE: $00000347 VOL: 0
 ;PCODE: $00000348 VOL: 0
 ;PCODE: $00000349 VOL: 0
-; 0000 0191 
-; 0000 0192     initiation();
 ;PCODE: $0000034A VOL: 0
-; 0000 0193     while(Middle_switch_off && !stop_condition)
 ;PCODE: $0000034B VOL: 0
 ;PCODE: $0000034C VOL: 0
 ;PCODE: $0000034D VOL: 0
+;
+;void initiation(void)
+; 0000 0196 {
 ;PCODE: $0000034E VOL: 0
 ;PCODE: $0000034F VOL: 0
+; 0000 0197     //타이머 관련 초기화
+; 0000 0198     OCRr = 65535;
 ;PCODE: $00000350 VOL: 0
 ;PCODE: $00000351 VOL: 0
+; 0000 0199     OCRl = 65535;
 ;PCODE: $00000352 VOL: 0
 ;PCODE: $00000353 VOL: 0
+; 0000 019A     // Step initiation
+; 0000 019B     step = 0;
 ;PCODE: $00000354 VOL: 0
 ;PCODE: $00000355 VOL: 0
-; 0000 0194     {
-; 0000 0195         PORTA.0 = 1;
+; 0000 019C     Motor_on;
 ;PCODE: $00000356 VOL: 0
 ;PCODE: $00000357 VOL: 0
-; 0000 0196         mean_cds();
 ;PCODE: $00000358 VOL: 0
-; 0000 0197         lcd_clear();
 ;PCODE: $00000359 VOL: 0
-; 0000 0198 
-; 0000 0199        //STOP condition
-; 0000 019A        if(step > stop_step)             stop_condition = 1;
+; 0000 019D }
 ;PCODE: $0000035A VOL: 0
 ;PCODE: $0000035B VOL: 0
+;
+;void motor_off(void)
+; 0000 01A0 {
 ;PCODE: $0000035C VOL: 0
 ;PCODE: $0000035D VOL: 0
+; 0000 01A1     TableIndexTarget = 0;
 ;PCODE: $0000035E VOL: 0
 ;PCODE: $0000035F VOL: 0
-; 0000 019B        if(cds_mean < cds_min+10)   stop_condition = 1;
+; 0000 01A2     stop_flag = 1;
 ;PCODE: $00000360 VOL: 0
 ;PCODE: $00000361 VOL: 0
+; 0000 01A3     while((LaccTableIndex>0) || (RaccTableIndex>0))
 ;PCODE: $00000362 VOL: 0
 ;PCODE: $00000363 VOL: 0
 ;PCODE: $00000364 VOL: 0
@@ -1302,190 +1312,218 @@
 ;PCODE: $00000367 VOL: 0
 ;PCODE: $00000368 VOL: 0
 ;PCODE: $00000369 VOL: 0
-; 0000 019C     };
 ;PCODE: $0000036A VOL: 0
+; 0000 01A4     {
+; 0000 01A5         TableIndexTarget = 0;
 ;PCODE: $0000036B VOL: 0
 ;PCODE: $0000036C VOL: 0
-; 0000 019D     motor_off();
+; 0000 01A6     }
 ;PCODE: $0000036D VOL: 0
-; 0000 019E     PORTA.0=0;
 ;PCODE: $0000036E VOL: 0
+; 0000 01A7     stop_flag = 0;
 ;PCODE: $0000036F VOL: 0
-; 0000 019F }
 ;PCODE: $00000370 VOL: 0
+; 0000 01A8     Motor_off;
 ;PCODE: $00000371 VOL: 0
-;
-;//*************************************** About Running ***************************************************************
-;// Update position
-;void update_position(void)
-; 0000 01A4 {
 ;PCODE: $00000372 VOL: 0
 ;PCODE: $00000373 VOL: 0
-; 0000 01A5     distance_Max0 = (10000/dist_min[0]);  // PSD값 & 실제거리는 반비례
 ;PCODE: $00000374 VOL: 0
+; 0000 01A9 
+; 0000 01AA     PORTC = 0x00;
 ;PCODE: $00000375 VOL: 0
 ;PCODE: $00000376 VOL: 0
+; 0000 01AB     TableIndexTarget = SearchTableIndex;
 ;PCODE: $00000377 VOL: 0
 ;PCODE: $00000378 VOL: 0
+; 0000 01AC     stop_condition = 0;
 ;PCODE: $00000379 VOL: 0
-; 0000 01A6     distance_min0 = (10000/dist_max[0]);
 ;PCODE: $0000037A VOL: 0
+; 0000 01AD }
 ;PCODE: $0000037B VOL: 0
 ;PCODE: $0000037C VOL: 0
+;
+;void motor_test(void)
+; 0000 01B0 {
 ;PCODE: $0000037D VOL: 0
 ;PCODE: $0000037E VOL: 0
+; 0000 01B1     long temp_step;
+; 0000 01B2 
+; 0000 01B3     lcd_clear();
 ;PCODE: $0000037F VOL: 0
-; 0000 01A7     distance_now0 = (10000/dist_mean[0]);
+;	temp_step -> Y+0
 ;PCODE: $00000380 VOL: 0
+; 0000 01B4     delay_ms(500);
 ;PCODE: $00000381 VOL: 0
 ;PCODE: $00000382 VOL: 0
 ;PCODE: $00000383 VOL: 0
+; 0000 01B5     lcd_gotoxy(0, 0);
 ;PCODE: $00000384 VOL: 0
 ;PCODE: $00000385 VOL: 0
-; 0000 01A8 
-; 0000 01A9     distance_Max1 = (10000/dist_min[1]);  // PSD값 & 실제거리는 반비례
 ;PCODE: $00000386 VOL: 0
 ;PCODE: $00000387 VOL: 0
 ;PCODE: $00000388 VOL: 0
+; 0000 01B6     lcd_putsf("TESTing");
 ;PCODE: $00000389 VOL: 0
 ;PCODE: $0000038A VOL: 0
 ;PCODE: $0000038B VOL: 0
 ;PCODE: $0000038C VOL: 0
-; 0000 01AA     distance_min1 = (10000/dist_max[1]);
+; 0000 01B7 
+; 0000 01B8     motor_phase_setting(0);
 ;PCODE: $0000038D VOL: 0
 ;PCODE: $0000038E VOL: 0
 ;PCODE: $0000038F VOL: 0
+; 0000 01B9     initiation();
 ;PCODE: $00000390 VOL: 0
+; 0000 01BA 
+; 0000 01BB     /*
+; 0000 01BC     while(Middle_switch_off && !stop_condition)
+; 0000 01BD     {
+; 0000 01BE         PORTA.0 = 1;
+; 0000 01BF         mean_cds();
+; 0000 01C0 
+; 0000 01C1        if(step > stop_step)
+; 0000 01C2        {
+; 0000 01C3             motor_off();
+; 0000 01C4             delay_ms(500);
+; 0000 01C5             state = ~state;
+; 0000 01C6             motor_phase_setting(state);
+; 0000 01C7             step = 0;
+; 0000 01C8             initiation();
+; 0000 01C9        }
+; 0000 01CA        //STOP condition
+; 0000 01CB        if(cds_mean < cds_min+10)   stop_condition = 1;
+; 0000 01CC     }
+; 0000 01CD     */
+; 0000 01CE 
+; 0000 01CF     while(Middle_switch_off)
 ;PCODE: $00000391 VOL: 0
 ;PCODE: $00000392 VOL: 0
 ;PCODE: $00000393 VOL: 0
-; 0000 01AB     distance_now1 = (10000/dist_mean[1]);
 ;PCODE: $00000394 VOL: 0
+; 0000 01D0     {
+; 0000 01D1         mean_cds();
 ;PCODE: $00000395 VOL: 0
+; 0000 01D2         //Back condition
+; 0000 01D3         if(cds_mean < cds_min+10)
 ;PCODE: $00000396 VOL: 0
 ;PCODE: $00000397 VOL: 0
 ;PCODE: $00000398 VOL: 0
 ;PCODE: $00000399 VOL: 0
 ;PCODE: $0000039A VOL: 0
-; 0000 01AC     //mean_dist();
-; 0000 01AD     // 코스 이탈 판단
-; 0000 01AE     if(dist_mean[1] < dist_min[1] || dist_mean[1] > dist_max[1])
 ;PCODE: $0000039B VOL: 0
 ;PCODE: $0000039C VOL: 0
+; 0000 01D4         {
+; 0000 01D5             motor_off();
 ;PCODE: $0000039D VOL: 0
+; 0000 01D6             stop_condition = 1;
 ;PCODE: $0000039E VOL: 0
 ;PCODE: $0000039F VOL: 0
+; 0000 01D7             motor_phase_setting(1);
 ;PCODE: $000003A0 VOL: 0
 ;PCODE: $000003A1 VOL: 0
 ;PCODE: $000003A2 VOL: 0
+; 0000 01D8             temp_step = step;
 ;PCODE: $000003A3 VOL: 0
 ;PCODE: $000003A4 VOL: 0
+; 0000 01D9             delay_ms(500); //이부분 대신에 책던지는 작업 추가
 ;PCODE: $000003A5 VOL: 0
 ;PCODE: $000003A6 VOL: 0
 ;PCODE: $000003A7 VOL: 0
+; 0000 01DA             initiation();
 ;PCODE: $000003A8 VOL: 0
-; 0000 01AF         leave_flag = 1;
+; 0000 01DB         }
+; 0000 01DC         else;
 ;PCODE: $000003A9 VOL: 0
 ;PCODE: $000003AA VOL: 0
-; 0000 01B0 
-; 0000 01B1     else
 ;PCODE: $000003AB VOL: 0
+; 0000 01DD 
+; 0000 01DE         // 원점으로 귀환
+; 0000 01DF 
+; 0000 01E0         if((step > (temp_step+100)) && (stop_condition))  //100은 기계적 오차에 대한 여유분
 ;PCODE: $000003AC VOL: 0
-; 0000 01B2     {
-; 0000 01B3         // 정상궤도 운행
-; 0000 01B4         detach = 0;
 ;PCODE: $000003AD VOL: 0
 ;PCODE: $000003AE VOL: 0
-; 0000 01B5         approach = 0;
 ;PCODE: $000003AF VOL: 0
 ;PCODE: $000003B0 VOL: 0
-; 0000 01B6         leave_flag = 0;
 ;PCODE: $000003B1 VOL: 0
 ;PCODE: $000003B2 VOL: 0
-; 0000 01B7         degree_factor = 200;
 ;PCODE: $000003B3 VOL: 0
 ;PCODE: $000003B4 VOL: 0
-; 0000 01B8     }
 ;PCODE: $000003B5 VOL: 0
-; 0000 01B9 
-; 0000 01BA     if(leave_flag)
 ;PCODE: $000003B6 VOL: 0
 ;PCODE: $000003B7 VOL: 0
+; 0000 01E1         {
+; 0000 01E2             motor_off();
 ;PCODE: $000003B8 VOL: 0
-; 0000 01BB     {
-; 0000 01BC         // ********** Degree of head **********
-; 0000 01BD         //degree_factor = (unsigned long)(200*(2*dist_mean[0])/(dist_min[0]+dist_max[0]));
-; 0000 01BE         degree_factor = (unsigned long)(compensate * distance_min0/distance_now0);
+; 0000 01E3             motor_phase_setting(0);
 ;PCODE: $000003B9 VOL: 0
 ;PCODE: $000003BA VOL: 0
 ;PCODE: $000003BB VOL: 0
+; 0000 01E4             temp_step = 0;
 ;PCODE: $000003BC VOL: 0
 ;PCODE: $000003BD VOL: 0
+; 0000 01E5         }
+; 0000 01E6 
+; 0000 01E7     }
 ;PCODE: $000003BE VOL: 0
 ;PCODE: $000003BF VOL: 0
 ;PCODE: $000003C0 VOL: 0
+; 0000 01E8 
+; 0000 01E9     motor_off();
 ;PCODE: $000003C1 VOL: 0
-; 0000 01BF 
-; 0000 01C0         if(degree_factor > 1000) degree_factor = 1000;
+; 0000 01EA     PORTA.0=0;
 ;PCODE: $000003C2 VOL: 0
 ;PCODE: $000003C3 VOL: 0
+; 0000 01EB }
 ;PCODE: $000003C4 VOL: 0
 ;PCODE: $000003C5 VOL: 0
 ;PCODE: $000003C6 VOL: 0
-; 0000 01C1         //head_reach = (unsigned long)(50*degree_factor/dist_mean[1]);
-; 0000 01C2         head_reach = (unsigned long)(degree_factor * distance_now1 /compensate);
+;
+;//*************************************** About Running ***************************************************************
+;// Update position
+;void update_position(void)
+; 0000 01F0 {
 ;PCODE: $000003C7 VOL: 0
 ;PCODE: $000003C8 VOL: 0
+; 0000 01F1     distance_Max0 = (10000/dist_min[0]);  // PSD값 & 실제거리는 반비례
 ;PCODE: $000003C9 VOL: 0
 ;PCODE: $000003CA VOL: 0
 ;PCODE: $000003CB VOL: 0
 ;PCODE: $000003CC VOL: 0
 ;PCODE: $000003CD VOL: 0
 ;PCODE: $000003CE VOL: 0
+; 0000 01F2     distance_min0 = (10000/dist_max[0]);
 ;PCODE: $000003CF VOL: 0
 ;PCODE: $000003D0 VOL: 0
-; 0000 01C3 
-; 0000 01C4         // ******** Right/Left posiotion ********
-; 0000 01C5         // Detaching from wall
-; 0000 01C6         if(head_reach > distance_Max1)
 ;PCODE: $000003D1 VOL: 0
 ;PCODE: $000003D2 VOL: 0
 ;PCODE: $000003D3 VOL: 0
 ;PCODE: $000003D4 VOL: 0
-; 0000 01C7         {
-; 0000 01C8             detach = 1;
+; 0000 01F3     distance_now0 = (10000/dist_mean[0]);
 ;PCODE: $000003D5 VOL: 0
 ;PCODE: $000003D6 VOL: 0
-; 0000 01C9             approach = 0;
 ;PCODE: $000003D7 VOL: 0
 ;PCODE: $000003D8 VOL: 0
-; 0000 01CA         }
-; 0000 01CB 
-; 0000 01CC         // Approaching wall
-; 0000 01CD         if(head_reach < distance_min1)
 ;PCODE: $000003D9 VOL: 0
 ;PCODE: $000003DA VOL: 0
+; 0000 01F4 
+; 0000 01F5     distance_Max1 = (10000/dist_min[1]);  // PSD값 & 실제거리는 반비례
 ;PCODE: $000003DB VOL: 0
 ;PCODE: $000003DC VOL: 0
 ;PCODE: $000003DD VOL: 0
-; 0000 01CE         {
-; 0000 01CF             approach = 1;
 ;PCODE: $000003DE VOL: 0
 ;PCODE: $000003DF VOL: 0
-; 0000 01D0             detach = 0;
 ;PCODE: $000003E0 VOL: 0
 ;PCODE: $000003E1 VOL: 0
-; 0000 01D1         }
-; 0000 01D2     }
+; 0000 01F6     distance_min1 = (10000/dist_max[1]);
 ;PCODE: $000003E2 VOL: 0
-; 0000 01D3     if(detach)  dir = -1;
 ;PCODE: $000003E3 VOL: 0
 ;PCODE: $000003E4 VOL: 0
 ;PCODE: $000003E5 VOL: 0
 ;PCODE: $000003E6 VOL: 0
 ;PCODE: $000003E7 VOL: 0
 ;PCODE: $000003E8 VOL: 0
-; 0000 01D4     else if(approach) dir = 1;
+; 0000 01F7     distance_now1 = (10000/dist_mean[1]);
 ;PCODE: $000003E9 VOL: 0
 ;PCODE: $000003EA VOL: 0
 ;PCODE: $000003EB VOL: 0
@@ -1493,8 +1531,9 @@
 ;PCODE: $000003ED VOL: 0
 ;PCODE: $000003EE VOL: 0
 ;PCODE: $000003EF VOL: 0
-; 0000 01D5     // 결과 : degree_factor(200*cos(theta)), detach, approach(direction)
-; 0000 01D6     degree_factor-=compensate;
+; 0000 01F8     //mean_dist();
+; 0000 01F9     // 코스 이탈 판단
+; 0000 01FA     if(dist_mean[1] < dist_min[1] || dist_mean[1] > dist_max[1])
 ;PCODE: $000003F0 VOL: 0
 ;PCODE: $000003F1 VOL: 0
 ;PCODE: $000003F2 VOL: 0
@@ -1503,57 +1542,62 @@
 ;PCODE: $000003F5 VOL: 0
 ;PCODE: $000003F6 VOL: 0
 ;PCODE: $000003F7 VOL: 0
-; 0000 01D7     degree_factor*=dir;
 ;PCODE: $000003F8 VOL: 0
 ;PCODE: $000003F9 VOL: 0
 ;PCODE: $000003FA VOL: 0
 ;PCODE: $000003FB VOL: 0
 ;PCODE: $000003FC VOL: 0
-; 0000 01D8 }
 ;PCODE: $000003FD VOL: 0
+; 0000 01FB         leave_flag = 1;
 ;PCODE: $000003FE VOL: 0
-;
-;void check_angle(void)
-; 0000 01DB {
 ;PCODE: $000003FF VOL: 0
+; 0000 01FC 
+; 0000 01FD     else
 ;PCODE: $00000400 VOL: 0
-; 0000 01DC     delay_ms(100);
 ;PCODE: $00000401 VOL: 0
+; 0000 01FE     {
+; 0000 01FF         // 정상궤도 운행
+; 0000 0200         detach = 0;
 ;PCODE: $00000402 VOL: 0
 ;PCODE: $00000403 VOL: 0
-; 0000 01DD     while(Middle_switch_off)
+; 0000 0201         approach = 0;
 ;PCODE: $00000404 VOL: 0
 ;PCODE: $00000405 VOL: 0
+; 0000 0202         leave_flag = 0;
 ;PCODE: $00000406 VOL: 0
 ;PCODE: $00000407 VOL: 0
-; 0000 01DE     {
-; 0000 01DF         mean_dist();
+; 0000 0203         degree_factor = 200;
 ;PCODE: $00000408 VOL: 0
-; 0000 01E0         update_position();
 ;PCODE: $00000409 VOL: 0
-; 0000 01E1         lcd_clear();
+; 0000 0204     }
 ;PCODE: $0000040A VOL: 0
-; 0000 01E2         lcd_gotoxy(0, 0);
+; 0000 0205 
+; 0000 0206     if(leave_flag)
 ;PCODE: $0000040B VOL: 0
 ;PCODE: $0000040C VOL: 0
 ;PCODE: $0000040D VOL: 0
+; 0000 0207     {
+; 0000 0208         // ********** Degree of head **********
+; 0000 0209         //degree_factor = (unsigned long)(200*(2*dist_mean[0])/(dist_min[0]+dist_max[0]));
+; 0000 020A         degree_factor = (unsigned long)(compensate * distance_min0/distance_now0);
 ;PCODE: $0000040E VOL: 0
 ;PCODE: $0000040F VOL: 0
-; 0000 01E3         lcd_putsf("Angle");
 ;PCODE: $00000410 VOL: 0
 ;PCODE: $00000411 VOL: 0
 ;PCODE: $00000412 VOL: 0
 ;PCODE: $00000413 VOL: 0
-; 0000 01E4         lcd_gotoxy(0, 1);
 ;PCODE: $00000414 VOL: 0
 ;PCODE: $00000415 VOL: 0
 ;PCODE: $00000416 VOL: 0
+; 0000 020B 
+; 0000 020C         if(degree_factor > 1000) degree_factor = 1000;
 ;PCODE: $00000417 VOL: 0
 ;PCODE: $00000418 VOL: 0
-; 0000 01E5         sprintf(lcd_data, "%d", degree_factor);
 ;PCODE: $00000419 VOL: 0
 ;PCODE: $0000041A VOL: 0
 ;PCODE: $0000041B VOL: 0
+; 0000 020D         //head_reach = (unsigned long)(50*degree_factor/dist_mean[1]);
+; 0000 020E         head_reach = (unsigned long)(degree_factor * distance_now1 /compensate);
 ;PCODE: $0000041C VOL: 0
 ;PCODE: $0000041D VOL: 0
 ;PCODE: $0000041E VOL: 0
@@ -1562,499 +1606,526 @@
 ;PCODE: $00000421 VOL: 0
 ;PCODE: $00000422 VOL: 0
 ;PCODE: $00000423 VOL: 0
-; 0000 01E6         lcd_puts(lcd_data);
 ;PCODE: $00000424 VOL: 0
 ;PCODE: $00000425 VOL: 0
+; 0000 020F 
+; 0000 0210         // ******** Right/Left posiotion ********
+; 0000 0211         // Detaching from wall
+; 0000 0212         if(head_reach > distance_Max1)
 ;PCODE: $00000426 VOL: 0
-; 0000 01E7         delay_ms(500);
 ;PCODE: $00000427 VOL: 0
 ;PCODE: $00000428 VOL: 0
 ;PCODE: $00000429 VOL: 0
-; 0000 01E8     }
+; 0000 0213         {
+; 0000 0214             detach = 1;
 ;PCODE: $0000042A VOL: 0
 ;PCODE: $0000042B VOL: 0
-; 0000 01E9 }
+; 0000 0215             approach = 0;
 ;PCODE: $0000042C VOL: 0
 ;PCODE: $0000042D VOL: 0
-;
-;void update_PID(void)
-; 0000 01EC {
+; 0000 0216         }
+; 0000 0217 
+; 0000 0218         // Approaching wall
+; 0000 0219         if(head_reach < distance_min1)
 ;PCODE: $0000042E VOL: 0
 ;PCODE: $0000042F VOL: 0
-; 0000 01ED     //signed long temp;
-; 0000 01EE 
-; 0000 01EF     // P-control
-; 0000 01F0     //temp = (signed long)Pgain * degree_factor;
-; 0000 01F1     //temp = (signed long)(Pgain * dir * (degree_factor-100) * (25/15));
-; 0000 01F2     temp = (signed long)(Pgain * degree_factor);
 ;PCODE: $00000430 VOL: 0
 ;PCODE: $00000431 VOL: 0
 ;PCODE: $00000432 VOL: 0
+; 0000 021A         {
+; 0000 021B             approach = 1;
 ;PCODE: $00000433 VOL: 0
 ;PCODE: $00000434 VOL: 0
-; 0000 01F3     //temp = 0;
-; 0000 01F4 
-; 0000 01F5     // Saturation
-; 0000 01F6     if(temp > 1111) temp = 1111;
+; 0000 021C             detach = 0;
 ;PCODE: $00000435 VOL: 0
 ;PCODE: $00000436 VOL: 0
+; 0000 021D         }
+; 0000 021E     }
 ;PCODE: $00000437 VOL: 0
+; 0000 021F     if(detach)  dir = -1;
 ;PCODE: $00000438 VOL: 0
 ;PCODE: $00000439 VOL: 0
-; 0000 01F7     else if(temp < -1111) temp = -1111;
 ;PCODE: $0000043A VOL: 0
 ;PCODE: $0000043B VOL: 0
 ;PCODE: $0000043C VOL: 0
 ;PCODE: $0000043D VOL: 0
+; 0000 0220     else if(approach) dir = 1;
 ;PCODE: $0000043E VOL: 0
 ;PCODE: $0000043F VOL: 0
 ;PCODE: $00000440 VOL: 0
-; 0000 01F8 
-; 0000 01F9     // 모터드라이버 특성
-; 0000 01FA     temp = temp * 9;
 ;PCODE: $00000441 VOL: 0
 ;PCODE: $00000442 VOL: 0
 ;PCODE: $00000443 VOL: 0
 ;PCODE: $00000444 VOL: 0
+; 0000 0221     // 결과 : degree_factor(200*cos(theta)), detach, approach(direction)
+; 0000 0222     degree_factor-=compensate;
 ;PCODE: $00000445 VOL: 0
 ;PCODE: $00000446 VOL: 0
-; 0000 01FB     denominator = temp;
 ;PCODE: $00000447 VOL: 0
 ;PCODE: $00000448 VOL: 0
-; 0000 01FC 
-; 0000 01FD     // 모터속도 결정
-; 0000 01FE     tempr = (((unsigned long)table[RaccTableIndex]) * 10000 / (denominator+10000));
 ;PCODE: $00000449 VOL: 0
 ;PCODE: $0000044A VOL: 0
 ;PCODE: $0000044B VOL: 0
 ;PCODE: $0000044C VOL: 0
+; 0000 0223     degree_factor*=dir;
 ;PCODE: $0000044D VOL: 0
 ;PCODE: $0000044E VOL: 0
 ;PCODE: $0000044F VOL: 0
 ;PCODE: $00000450 VOL: 0
 ;PCODE: $00000451 VOL: 0
+; 0000 0224 }
 ;PCODE: $00000452 VOL: 0
 ;PCODE: $00000453 VOL: 0
+;
+;void check_angle(void)
+; 0000 0227 {
 ;PCODE: $00000454 VOL: 0
 ;PCODE: $00000455 VOL: 0
+; 0000 0228     delay_ms(100);
 ;PCODE: $00000456 VOL: 0
-; 0000 01FF     //if(tempr>65534) tempr = 65534;
-; 0000 0200 	//if(tempr<1) tempr = 1;
-; 0000 0201     if(tempr>18463) tempr = 18463;
 ;PCODE: $00000457 VOL: 0
 ;PCODE: $00000458 VOL: 0
+; 0000 0229     while(Middle_switch_off)
 ;PCODE: $00000459 VOL: 0
 ;PCODE: $0000045A VOL: 0
 ;PCODE: $0000045B VOL: 0
-; 0000 0202     if(tempr<2565) tempr = 2565;
 ;PCODE: $0000045C VOL: 0
+; 0000 022A     {
+; 0000 022B         mean_dist();
 ;PCODE: $0000045D VOL: 0
+; 0000 022C         update_position();
 ;PCODE: $0000045E VOL: 0
+; 0000 022D         lcd_clear();
 ;PCODE: $0000045F VOL: 0
+; 0000 022E         lcd_gotoxy(0, 0);
 ;PCODE: $00000460 VOL: 0
 ;PCODE: $00000461 VOL: 0
-; 0000 0203 
-; 0000 0204     templ = (((unsigned long)table[LaccTableIndex]) * 10000 / (-denominator+10000));
 ;PCODE: $00000462 VOL: 0
 ;PCODE: $00000463 VOL: 0
 ;PCODE: $00000464 VOL: 0
+; 0000 022F         lcd_putsf("Angle");
 ;PCODE: $00000465 VOL: 0
 ;PCODE: $00000466 VOL: 0
 ;PCODE: $00000467 VOL: 0
 ;PCODE: $00000468 VOL: 0
+; 0000 0230         lcd_gotoxy(0, 1);
 ;PCODE: $00000469 VOL: 0
 ;PCODE: $0000046A VOL: 0
 ;PCODE: $0000046B VOL: 0
 ;PCODE: $0000046C VOL: 0
 ;PCODE: $0000046D VOL: 0
+; 0000 0231         sprintf(lcd_data, "%d", degree_factor);
 ;PCODE: $0000046E VOL: 0
 ;PCODE: $0000046F VOL: 0
 ;PCODE: $00000470 VOL: 0
 ;PCODE: $00000471 VOL: 0
-; 0000 0205     //if(templ>65534) templ = 65534;
-; 0000 0206     //if(templ<1) templ = 1;
-; 0000 0207     if(templ>18463) templ = 18463; //최저속도
 ;PCODE: $00000472 VOL: 0
 ;PCODE: $00000473 VOL: 0
 ;PCODE: $00000474 VOL: 0
 ;PCODE: $00000475 VOL: 0
 ;PCODE: $00000476 VOL: 0
-; 0000 0208     if(templ<2565) templ = 2565; //최고속도
 ;PCODE: $00000477 VOL: 0
 ;PCODE: $00000478 VOL: 0
+; 0000 0232         lcd_puts(lcd_data);
 ;PCODE: $00000479 VOL: 0
 ;PCODE: $0000047A VOL: 0
 ;PCODE: $0000047B VOL: 0
+; 0000 0233         delay_ms(500);
 ;PCODE: $0000047C VOL: 0
-; 0000 0209 }
 ;PCODE: $0000047D VOL: 0
 ;PCODE: $0000047E VOL: 0
+; 0000 0234     }
 ;PCODE: $0000047F VOL: 0
-;
-;void Heading()
-; 0000 020C {
 ;PCODE: $00000480 VOL: 0
+; 0000 0235 }
 ;PCODE: $00000481 VOL: 0
-; 0000 020D     delay_ms(100);
 ;PCODE: $00000482 VOL: 0
+;
+;void update_PID(void)
+; 0000 0238 {
 ;PCODE: $00000483 VOL: 0
 ;PCODE: $00000484 VOL: 0
-; 0000 020E     while(Middle_switch_off)
+; 0000 0239     //signed long temp;
+; 0000 023A 
+; 0000 023B     // P-control
+; 0000 023C     //temp = (signed long)Pgain * degree_factor;
+; 0000 023D     //temp = (signed long)(Pgain * dir * (degree_factor-100) * (25/15));
+; 0000 023E     temp = (signed long)(Pgain * degree_factor);
 ;PCODE: $00000485 VOL: 0
 ;PCODE: $00000486 VOL: 0
 ;PCODE: $00000487 VOL: 0
 ;PCODE: $00000488 VOL: 0
-; 0000 020F     {
-; 0000 0210         mean_dist();
 ;PCODE: $00000489 VOL: 0
-; 0000 0211         update_position();
+; 0000 023F     //temp = 0;
+; 0000 0240 
+; 0000 0241     // Saturation
+; 0000 0242     if(temp > 1111) temp = 1111;
 ;PCODE: $0000048A VOL: 0
-; 0000 0212 
-; 0000 0213         lcd_clear();
 ;PCODE: $0000048B VOL: 0
-; 0000 0214         lcd_gotoxy(0, 0);
 ;PCODE: $0000048C VOL: 0
 ;PCODE: $0000048D VOL: 0
 ;PCODE: $0000048E VOL: 0
+; 0000 0243     else if(temp < -1111) temp = -1111;
 ;PCODE: $0000048F VOL: 0
 ;PCODE: $00000490 VOL: 0
-; 0000 0215         lcd_putsf("Head?");
 ;PCODE: $00000491 VOL: 0
 ;PCODE: $00000492 VOL: 0
 ;PCODE: $00000493 VOL: 0
 ;PCODE: $00000494 VOL: 0
-; 0000 0216         if(approach)
 ;PCODE: $00000495 VOL: 0
+; 0000 0244 
+; 0000 0245     // 모터드라이버 특성
+; 0000 0246     temp = temp * 9;
 ;PCODE: $00000496 VOL: 0
 ;PCODE: $00000497 VOL: 0
-; 0000 0217         {
-; 0000 0218             lcd_gotoxy(0, 1);
 ;PCODE: $00000498 VOL: 0
 ;PCODE: $00000499 VOL: 0
 ;PCODE: $0000049A VOL: 0
 ;PCODE: $0000049B VOL: 0
+; 0000 0247     denominator = temp;
 ;PCODE: $0000049C VOL: 0
-; 0000 0219             lcd_putsf("Approach");
 ;PCODE: $0000049D VOL: 0
+; 0000 0248 
+; 0000 0249     // 모터속도 결정
+; 0000 024A     tempr = (((unsigned long)table[RaccTableIndex]) * 10000 / (denominator+10000));
 ;PCODE: $0000049E VOL: 0
 ;PCODE: $0000049F VOL: 0
 ;PCODE: $000004A0 VOL: 0
-; 0000 021A         }
-; 0000 021B         if(detach)
 ;PCODE: $000004A1 VOL: 0
 ;PCODE: $000004A2 VOL: 0
 ;PCODE: $000004A3 VOL: 0
 ;PCODE: $000004A4 VOL: 0
-; 0000 021C         {
-; 0000 021D             lcd_gotoxy(0, 1);
 ;PCODE: $000004A5 VOL: 0
 ;PCODE: $000004A6 VOL: 0
 ;PCODE: $000004A7 VOL: 0
 ;PCODE: $000004A8 VOL: 0
 ;PCODE: $000004A9 VOL: 0
-; 0000 021E             lcd_putsf("Detach");
 ;PCODE: $000004AA VOL: 0
 ;PCODE: $000004AB VOL: 0
+; 0000 024B     //if(tempr>65534) tempr = 65534;
+; 0000 024C 	//if(tempr<1) tempr = 1;
+; 0000 024D     if(tempr>18463) tempr = 18463;
 ;PCODE: $000004AC VOL: 0
 ;PCODE: $000004AD VOL: 0
-; 0000 021F         }
-; 0000 0220         if(!approach && !detach)
 ;PCODE: $000004AE VOL: 0
 ;PCODE: $000004AF VOL: 0
 ;PCODE: $000004B0 VOL: 0
+; 0000 024E     if(tempr<2565) tempr = 2565;
 ;PCODE: $000004B1 VOL: 0
 ;PCODE: $000004B2 VOL: 0
 ;PCODE: $000004B3 VOL: 0
 ;PCODE: $000004B4 VOL: 0
 ;PCODE: $000004B5 VOL: 0
 ;PCODE: $000004B6 VOL: 0
+; 0000 024F 
+; 0000 0250     templ = (((unsigned long)table[LaccTableIndex]) * 10000 / (-denominator+10000));
 ;PCODE: $000004B7 VOL: 0
 ;PCODE: $000004B8 VOL: 0
-; 0000 0221         {
-; 0000 0222             lcd_gotoxy(0, 1);
 ;PCODE: $000004B9 VOL: 0
 ;PCODE: $000004BA VOL: 0
 ;PCODE: $000004BB VOL: 0
 ;PCODE: $000004BC VOL: 0
 ;PCODE: $000004BD VOL: 0
-; 0000 0223             lcd_putsf("Right");
 ;PCODE: $000004BE VOL: 0
 ;PCODE: $000004BF VOL: 0
 ;PCODE: $000004C0 VOL: 0
 ;PCODE: $000004C1 VOL: 0
-; 0000 0224         }
-; 0000 0225 
-; 0000 0226         delay_ms(500);
 ;PCODE: $000004C2 VOL: 0
 ;PCODE: $000004C3 VOL: 0
 ;PCODE: $000004C4 VOL: 0
 ;PCODE: $000004C5 VOL: 0
-; 0000 0227         Motor_off;
 ;PCODE: $000004C6 VOL: 0
+; 0000 0251     //if(templ>65534) templ = 65534;
+; 0000 0252     //if(templ<1) templ = 1;
+; 0000 0253     if(templ>18463) templ = 18463; //최저속도
 ;PCODE: $000004C7 VOL: 0
 ;PCODE: $000004C8 VOL: 0
 ;PCODE: $000004C9 VOL: 0
-; 0000 0228     }
 ;PCODE: $000004CA VOL: 0
 ;PCODE: $000004CB VOL: 0
-; 0000 0229 }
+; 0000 0254     if(templ<2565) templ = 2565; //최고속도
 ;PCODE: $000004CC VOL: 0
 ;PCODE: $000004CD VOL: 0
-;
-;//About race
-;void navigate(void)
-; 0000 022D {
 ;PCODE: $000004CE VOL: 0
 ;PCODE: $000004CF VOL: 0
-; 0000 022E     lcd_clear();
 ;PCODE: $000004D0 VOL: 0
-; 0000 022F     lcd_gotoxy(0, 0);
 ;PCODE: $000004D1 VOL: 0
+; 0000 0255 }
 ;PCODE: $000004D2 VOL: 0
 ;PCODE: $000004D3 VOL: 0
 ;PCODE: $000004D4 VOL: 0
+;
+;void Heading()
+; 0000 0258 {
 ;PCODE: $000004D5 VOL: 0
-; 0000 0230     lcd_putsf("GO!!");
 ;PCODE: $000004D6 VOL: 0
+; 0000 0259     delay_ms(100);
 ;PCODE: $000004D7 VOL: 0
 ;PCODE: $000004D8 VOL: 0
 ;PCODE: $000004D9 VOL: 0
-; 0000 0231     delay_ms(500);
+; 0000 025A     while(Middle_switch_off)
 ;PCODE: $000004DA VOL: 0
 ;PCODE: $000004DB VOL: 0
 ;PCODE: $000004DC VOL: 0
-; 0000 0232     mode = 1;
 ;PCODE: $000004DD VOL: 0
+; 0000 025B     {
+; 0000 025C         mean_dist();
 ;PCODE: $000004DE VOL: 0
-; 0000 0233 
-; 0000 0234     initiation();
+; 0000 025D         update_position();
 ;PCODE: $000004DF VOL: 0
-; 0000 0235     while(Middle_switch_off && !stop_condition)
+; 0000 025E 
+; 0000 025F         lcd_clear();
 ;PCODE: $000004E0 VOL: 0
+; 0000 0260         lcd_gotoxy(0, 0);
 ;PCODE: $000004E1 VOL: 0
 ;PCODE: $000004E2 VOL: 0
 ;PCODE: $000004E3 VOL: 0
 ;PCODE: $000004E4 VOL: 0
 ;PCODE: $000004E5 VOL: 0
+; 0000 0261         lcd_putsf("Head?");
 ;PCODE: $000004E6 VOL: 0
 ;PCODE: $000004E7 VOL: 0
 ;PCODE: $000004E8 VOL: 0
 ;PCODE: $000004E9 VOL: 0
+; 0000 0262         if(approach)
 ;PCODE: $000004EA VOL: 0
-; 0000 0236     {
-; 0000 0237         mean_dist();
 ;PCODE: $000004EB VOL: 0
-; 0000 0238         mean_cds();
 ;PCODE: $000004EC VOL: 0
-; 0000 0239         update_position();
+; 0000 0263         {
+; 0000 0264             lcd_gotoxy(0, 1);
 ;PCODE: $000004ED VOL: 0
-; 0000 023A         update_PID();
 ;PCODE: $000004EE VOL: 0
-; 0000 023B 
-; 0000 023C         lcd_gotoxy(0, 1);
 ;PCODE: $000004EF VOL: 0
 ;PCODE: $000004F0 VOL: 0
 ;PCODE: $000004F1 VOL: 0
+; 0000 0265             lcd_putsf("Approach");
 ;PCODE: $000004F2 VOL: 0
 ;PCODE: $000004F3 VOL: 0
-; 0000 023D         sprintf(lcd_data, "%d", approach);
 ;PCODE: $000004F4 VOL: 0
 ;PCODE: $000004F5 VOL: 0
+; 0000 0266         }
+; 0000 0267         if(detach)
 ;PCODE: $000004F6 VOL: 0
 ;PCODE: $000004F7 VOL: 0
 ;PCODE: $000004F8 VOL: 0
 ;PCODE: $000004F9 VOL: 0
+; 0000 0268         {
+; 0000 0269             lcd_gotoxy(0, 1);
 ;PCODE: $000004FA VOL: 0
 ;PCODE: $000004FB VOL: 0
 ;PCODE: $000004FC VOL: 0
 ;PCODE: $000004FD VOL: 0
 ;PCODE: $000004FE VOL: 0
+; 0000 026A             lcd_putsf("Detach");
 ;PCODE: $000004FF VOL: 0
-; 0000 023E         lcd_puts(lcd_data);
 ;PCODE: $00000500 VOL: 0
 ;PCODE: $00000501 VOL: 0
 ;PCODE: $00000502 VOL: 0
-; 0000 023F         lcd_gotoxy(7, 1);
+; 0000 026B         }
+; 0000 026C         if(!approach && !detach)
 ;PCODE: $00000503 VOL: 0
 ;PCODE: $00000504 VOL: 0
 ;PCODE: $00000505 VOL: 0
 ;PCODE: $00000506 VOL: 0
 ;PCODE: $00000507 VOL: 0
-; 0000 0240         sprintf(lcd_data, "%d", detach);
 ;PCODE: $00000508 VOL: 0
 ;PCODE: $00000509 VOL: 0
 ;PCODE: $0000050A VOL: 0
 ;PCODE: $0000050B VOL: 0
 ;PCODE: $0000050C VOL: 0
 ;PCODE: $0000050D VOL: 0
+; 0000 026D         {
+; 0000 026E             lcd_gotoxy(0, 1);
 ;PCODE: $0000050E VOL: 0
 ;PCODE: $0000050F VOL: 0
 ;PCODE: $00000510 VOL: 0
 ;PCODE: $00000511 VOL: 0
 ;PCODE: $00000512 VOL: 0
+; 0000 026F             lcd_putsf("Right");
 ;PCODE: $00000513 VOL: 0
-; 0000 0241         lcd_puts(lcd_data);
 ;PCODE: $00000514 VOL: 0
 ;PCODE: $00000515 VOL: 0
 ;PCODE: $00000516 VOL: 0
-; 0000 0242 
-; 0000 0243         //STOP condition
-; 0000 0244         //if(step > stop_step)             stop_condition = 1;
-; 0000 0245         if(cds_mean < cds_min+10)   stop_condition = 1;
+; 0000 0270         }
+; 0000 0271 
+; 0000 0272         delay_ms(500);
 ;PCODE: $00000517 VOL: 0
 ;PCODE: $00000518 VOL: 0
 ;PCODE: $00000519 VOL: 0
 ;PCODE: $0000051A VOL: 0
+; 0000 0273         Motor_off;
 ;PCODE: $0000051B VOL: 0
 ;PCODE: $0000051C VOL: 0
 ;PCODE: $0000051D VOL: 0
 ;PCODE: $0000051E VOL: 0
+; 0000 0274     }
 ;PCODE: $0000051F VOL: 0
-; 0000 0246     }
 ;PCODE: $00000520 VOL: 0
+; 0000 0275 }
 ;PCODE: $00000521 VOL: 0
 ;PCODE: $00000522 VOL: 0
-; 0000 0247     motor_off();
+;
+;//About race
+;void navigate(void)
+; 0000 0279 {
 ;PCODE: $00000523 VOL: 0
-; 0000 0248     mode = 0;
 ;PCODE: $00000524 VOL: 0
+; 0000 027A     char state = 0;
+; 0000 027B     long temp_step;
+; 0000 027C 
+; 0000 027D     lcd_clear();
 ;PCODE: $00000525 VOL: 0
-; 0000 0249 }
 ;PCODE: $00000526 VOL: 0
+;	state -> R17
+;	temp_step -> Y+1
 ;PCODE: $00000527 VOL: 0
-;
-;
-;void Pgain_adj(void)
-; 0000 024D {
 ;PCODE: $00000528 VOL: 0
 ;PCODE: $00000529 VOL: 0
-; 0000 024E     delay_ms(100);
+; 0000 027E     lcd_gotoxy(0, 0);
 ;PCODE: $0000052A VOL: 0
 ;PCODE: $0000052B VOL: 0
 ;PCODE: $0000052C VOL: 0
-; 0000 024F     while(Middle_switch_off)
 ;PCODE: $0000052D VOL: 0
 ;PCODE: $0000052E VOL: 0
+; 0000 027F     lcd_putsf("GO!!");
 ;PCODE: $0000052F VOL: 0
 ;PCODE: $00000530 VOL: 0
-; 0000 0250     {
-; 0000 0251         if(Left_switch_on) Pgain+=5;
 ;PCODE: $00000531 VOL: 0
 ;PCODE: $00000532 VOL: 0
+; 0000 0280     delay_ms(500);
 ;PCODE: $00000533 VOL: 0
 ;PCODE: $00000534 VOL: 0
 ;PCODE: $00000535 VOL: 0
+; 0000 0281     mode = 1;
 ;PCODE: $00000536 VOL: 0
-; 0000 0252         if(Right_switch_on) Pgain-=5;
 ;PCODE: $00000537 VOL: 0
+; 0000 0282 
+; 0000 0283     initiation();
 ;PCODE: $00000538 VOL: 0
+; 0000 0284     motor_phase_setting(state);
 ;PCODE: $00000539 VOL: 0
 ;PCODE: $0000053A VOL: 0
+; 0000 0285     while(Middle_switch_off)
 ;PCODE: $0000053B VOL: 0
 ;PCODE: $0000053C VOL: 0
 ;PCODE: $0000053D VOL: 0
-; 0000 0253 
-; 0000 0254         lcd_clear();
 ;PCODE: $0000053E VOL: 0
+; 0000 0286     {
+; 0000 0287         if(Left_switch_off) initiation();  //원점귀환 후 다시 주행시작 - TEST (실제상황에서는 무게감지 혹은 바코드 인식으로 인한 flag로 설정)
 ;PCODE: $0000053F VOL: 0
-; 0000 0255         lcd_gotoxy(0,0);
 ;PCODE: $00000540 VOL: 0
 ;PCODE: $00000541 VOL: 0
 ;PCODE: $00000542 VOL: 0
+; 0000 0288 
+; 0000 0289         mean_dist();
 ;PCODE: $00000543 VOL: 0
 ;PCODE: $00000544 VOL: 0
-; 0000 0256         lcd_putsf("Pgain!!");
+; 0000 028A         mean_cds();
 ;PCODE: $00000545 VOL: 0
+; 0000 028B         update_position();
 ;PCODE: $00000546 VOL: 0
+; 0000 028C         update_PID();
 ;PCODE: $00000547 VOL: 0
+; 0000 028D 
+; 0000 028E         //Back condition
+; 0000 028F         if(cds_mean < cds_min+10)
 ;PCODE: $00000548 VOL: 0
-; 0000 0257 
-; 0000 0258         lcd_gotoxy(0, 1);
 ;PCODE: $00000549 VOL: 0
 ;PCODE: $0000054A VOL: 0
 ;PCODE: $0000054B VOL: 0
 ;PCODE: $0000054C VOL: 0
 ;PCODE: $0000054D VOL: 0
-; 0000 0259         sprintf(lcd_data, "%d", Pgain);
 ;PCODE: $0000054E VOL: 0
+; 0000 0290         {
+; 0000 0291             motor_off();
 ;PCODE: $0000054F VOL: 0
+; 0000 0292             stop_condition = 1;
 ;PCODE: $00000550 VOL: 0
 ;PCODE: $00000551 VOL: 0
+; 0000 0293             state = ~state;
 ;PCODE: $00000552 VOL: 0
+; 0000 0294             motor_phase_setting(state);
 ;PCODE: $00000553 VOL: 0
 ;PCODE: $00000554 VOL: 0
+; 0000 0295             temp_step = step;
 ;PCODE: $00000555 VOL: 0
 ;PCODE: $00000556 VOL: 0
+; 0000 0296             delay_ms(500); //이부분 대신에 책던지는 작업 추가
 ;PCODE: $00000557 VOL: 0
 ;PCODE: $00000558 VOL: 0
 ;PCODE: $00000559 VOL: 0
-; 0000 025A         lcd_puts(lcd_data);
+; 0000 0297             initiation();
 ;PCODE: $0000055A VOL: 0
+; 0000 0298         }
+; 0000 0299 
+; 0000 029A         // 원점으로 귀환
+; 0000 029B         if((step > temp_step+100) && (stop_condition == 1))  //100은 기계적 오차에 대한 여유분
 ;PCODE: $0000055B VOL: 0
 ;PCODE: $0000055C VOL: 0
-; 0000 025B         delay_ms(100);
 ;PCODE: $0000055D VOL: 0
 ;PCODE: $0000055E VOL: 0
 ;PCODE: $0000055F VOL: 0
-; 0000 025C     }
 ;PCODE: $00000560 VOL: 0
 ;PCODE: $00000561 VOL: 0
-; 0000 025D }
 ;PCODE: $00000562 VOL: 0
 ;PCODE: $00000563 VOL: 0
-;
-;void speed_adj(void)
-; 0000 0260 {
 ;PCODE: $00000564 VOL: 0
 ;PCODE: $00000565 VOL: 0
-; 0000 0261     delay_ms(100);
 ;PCODE: $00000566 VOL: 0
 ;PCODE: $00000567 VOL: 0
+; 0000 029C         {
+; 0000 029D             motor_off();
 ;PCODE: $00000568 VOL: 0
-; 0000 0262     while(Middle_switch_off)
+; 0000 029E             state = ~state;
 ;PCODE: $00000569 VOL: 0
+; 0000 029F             motor_phase_setting(state);
 ;PCODE: $0000056A VOL: 0
 ;PCODE: $0000056B VOL: 0
+; 0000 02A0             step = 0;
 ;PCODE: $0000056C VOL: 0
-; 0000 0263     {
-; 0000 0264         if(Left_switch_on) TableIndexTarget+=5;
 ;PCODE: $0000056D VOL: 0
+; 0000 02A1             stop_condition = 0;
 ;PCODE: $0000056E VOL: 0
 ;PCODE: $0000056F VOL: 0
+; 0000 02A2         }
+; 0000 02A3     }
 ;PCODE: $00000570 VOL: 0
 ;PCODE: $00000571 VOL: 0
 ;PCODE: $00000572 VOL: 0
-; 0000 0265         if(Right_switch_on) TableIndexTarget-=5;
+; 0000 02A4     motor_off();
 ;PCODE: $00000573 VOL: 0
+; 0000 02A5     mode = 0;
 ;PCODE: $00000574 VOL: 0
 ;PCODE: $00000575 VOL: 0
+; 0000 02A6 }
 ;PCODE: $00000576 VOL: 0
 ;PCODE: $00000577 VOL: 0
 ;PCODE: $00000578 VOL: 0
 ;PCODE: $00000579 VOL: 0
-; 0000 0266 
-; 0000 0267         lcd_clear();
 ;PCODE: $0000057A VOL: 0
+;
+;void Pgain_adj(void)
+; 0000 02A9 {
 ;PCODE: $0000057B VOL: 0
-; 0000 0268         lcd_gotoxy(0,0);
 ;PCODE: $0000057C VOL: 0
+; 0000 02AA     delay_ms(100);
 ;PCODE: $0000057D VOL: 0
 ;PCODE: $0000057E VOL: 0
 ;PCODE: $0000057F VOL: 0
+; 0000 02AB     while(Middle_switch_off)
 ;PCODE: $00000580 VOL: 0
-; 0000 0269         lcd_putsf("Pgain!!");
 ;PCODE: $00000581 VOL: 0
 ;PCODE: $00000582 VOL: 0
 ;PCODE: $00000583 VOL: 0
+; 0000 02AC     {
+; 0000 02AD         if(Left_switch_on) Pgain+=5;
 ;PCODE: $00000584 VOL: 0
-; 0000 026A 
-; 0000 026B         lcd_gotoxy(0, 1);
 ;PCODE: $00000585 VOL: 0
 ;PCODE: $00000586 VOL: 0
 ;PCODE: $00000587 VOL: 0
 ;PCODE: $00000588 VOL: 0
 ;PCODE: $00000589 VOL: 0
-; 0000 026C         sprintf(lcd_data, "%d", TableIndexTarget);
+; 0000 02AE         if(Right_switch_on) Pgain-=5;
 ;PCODE: $0000058A VOL: 0
 ;PCODE: $0000058B VOL: 0
 ;PCODE: $0000058C VOL: 0
@@ -2062,698 +2133,702 @@
 ;PCODE: $0000058E VOL: 0
 ;PCODE: $0000058F VOL: 0
 ;PCODE: $00000590 VOL: 0
+; 0000 02AF 
+; 0000 02B0         lcd_clear();
 ;PCODE: $00000591 VOL: 0
 ;PCODE: $00000592 VOL: 0
+; 0000 02B1         lcd_gotoxy(0,0);
 ;PCODE: $00000593 VOL: 0
 ;PCODE: $00000594 VOL: 0
-; 0000 026D         lcd_puts(lcd_data);
 ;PCODE: $00000595 VOL: 0
 ;PCODE: $00000596 VOL: 0
 ;PCODE: $00000597 VOL: 0
-; 0000 026E         delay_ms(100);
+; 0000 02B2         lcd_putsf("Pgain!!");
 ;PCODE: $00000598 VOL: 0
 ;PCODE: $00000599 VOL: 0
 ;PCODE: $0000059A VOL: 0
-; 0000 026F         SearchTableIndex = TableIndexTarget;
 ;PCODE: $0000059B VOL: 0
+; 0000 02B3 
+; 0000 02B4         lcd_gotoxy(0, 1);
 ;PCODE: $0000059C VOL: 0
-; 0000 0270     }
 ;PCODE: $0000059D VOL: 0
 ;PCODE: $0000059E VOL: 0
-; 0000 0271 }
 ;PCODE: $0000059F VOL: 0
 ;PCODE: $000005A0 VOL: 0
-;
-;void s_step_adj(void)
-; 0000 0274 {
+; 0000 02B5         sprintf(lcd_data, "%d", Pgain);
 ;PCODE: $000005A1 VOL: 0
 ;PCODE: $000005A2 VOL: 0
-; 0000 0275     delay_ms(100);
 ;PCODE: $000005A3 VOL: 0
 ;PCODE: $000005A4 VOL: 0
 ;PCODE: $000005A5 VOL: 0
-; 0000 0276     while(Middle_switch_off)
 ;PCODE: $000005A6 VOL: 0
 ;PCODE: $000005A7 VOL: 0
 ;PCODE: $000005A8 VOL: 0
 ;PCODE: $000005A9 VOL: 0
-; 0000 0277     {
-; 0000 0278         if(Left_switch_on) stop_step+=500;
 ;PCODE: $000005AA VOL: 0
 ;PCODE: $000005AB VOL: 0
 ;PCODE: $000005AC VOL: 0
+; 0000 02B6         lcd_puts(lcd_data);
 ;PCODE: $000005AD VOL: 0
 ;PCODE: $000005AE VOL: 0
 ;PCODE: $000005AF VOL: 0
-; 0000 0279         if(Right_switch_on) stop_step-=500;
+; 0000 02B7         delay_ms(100);
 ;PCODE: $000005B0 VOL: 0
 ;PCODE: $000005B1 VOL: 0
 ;PCODE: $000005B2 VOL: 0
+; 0000 02B8     }
 ;PCODE: $000005B3 VOL: 0
 ;PCODE: $000005B4 VOL: 0
+; 0000 02B9 }
 ;PCODE: $000005B5 VOL: 0
 ;PCODE: $000005B6 VOL: 0
-; 0000 027A 
-; 0000 027B         lcd_clear();
+;
+;void speed_adj(void)
+; 0000 02BC {
 ;PCODE: $000005B7 VOL: 0
 ;PCODE: $000005B8 VOL: 0
-; 0000 027C         lcd_gotoxy(0,0);
+; 0000 02BD     delay_ms(100);
 ;PCODE: $000005B9 VOL: 0
 ;PCODE: $000005BA VOL: 0
 ;PCODE: $000005BB VOL: 0
+; 0000 02BE     while(Middle_switch_off)
 ;PCODE: $000005BC VOL: 0
 ;PCODE: $000005BD VOL: 0
-; 0000 027D         lcd_putsf("s_stop!!");
 ;PCODE: $000005BE VOL: 0
 ;PCODE: $000005BF VOL: 0
+; 0000 02BF     {
+; 0000 02C0         if(Left_switch_on) TableIndexTarget+=5;
 ;PCODE: $000005C0 VOL: 0
 ;PCODE: $000005C1 VOL: 0
-; 0000 027E 
-; 0000 027F         lcd_gotoxy(0, 1);
 ;PCODE: $000005C2 VOL: 0
 ;PCODE: $000005C3 VOL: 0
 ;PCODE: $000005C4 VOL: 0
 ;PCODE: $000005C5 VOL: 0
+; 0000 02C1         if(Right_switch_on) TableIndexTarget-=5;
 ;PCODE: $000005C6 VOL: 0
-; 0000 0280         sprintf(lcd_data, "%d", stop_step);
 ;PCODE: $000005C7 VOL: 0
 ;PCODE: $000005C8 VOL: 0
 ;PCODE: $000005C9 VOL: 0
 ;PCODE: $000005CA VOL: 0
 ;PCODE: $000005CB VOL: 0
 ;PCODE: $000005CC VOL: 0
+; 0000 02C2 
+; 0000 02C3         lcd_clear();
 ;PCODE: $000005CD VOL: 0
 ;PCODE: $000005CE VOL: 0
+; 0000 02C4         lcd_gotoxy(0,0);
 ;PCODE: $000005CF VOL: 0
 ;PCODE: $000005D0 VOL: 0
 ;PCODE: $000005D1 VOL: 0
-; 0000 0281         lcd_puts(lcd_data);
 ;PCODE: $000005D2 VOL: 0
 ;PCODE: $000005D3 VOL: 0
+; 0000 02C5         lcd_putsf("Pgain!!");
 ;PCODE: $000005D4 VOL: 0
-; 0000 0282         delay_ms(100);
 ;PCODE: $000005D5 VOL: 0
 ;PCODE: $000005D6 VOL: 0
 ;PCODE: $000005D7 VOL: 0
-; 0000 0283     }
+; 0000 02C6 
+; 0000 02C7         lcd_gotoxy(0, 1);
 ;PCODE: $000005D8 VOL: 0
 ;PCODE: $000005D9 VOL: 0
-; 0000 0284 }
 ;PCODE: $000005DA VOL: 0
 ;PCODE: $000005DB VOL: 0
-;
-;// ********************************************* main ******************************************************************
-;void main(void)
-; 0000 0288 {
 ;PCODE: $000005DC VOL: 0
-; 0000 0289 // Declare your local variables here
-; 0000 028A // menu
-; 0000 028B unsigned char menu = 0;
-; 0000 028C unsigned char menu_Max = 10;
-; 0000 028D 
-; 0000 028E 
-; 0000 028F PORTA=0xFE;
-;	menu -> R17
-;	menu_Max -> R16
+; 0000 02C8         sprintf(lcd_data, "%d", TableIndexTarget);
 ;PCODE: $000005DD VOL: 0
 ;PCODE: $000005DE VOL: 0
 ;PCODE: $000005DF VOL: 0
 ;PCODE: $000005E0 VOL: 0
 ;PCODE: $000005E1 VOL: 0
 ;PCODE: $000005E2 VOL: 0
-; 0000 0290 DDRA=0xFF;
 ;PCODE: $000005E3 VOL: 0
 ;PCODE: $000005E4 VOL: 0
-; 0000 0291 
-; 0000 0292 PORTB=0x00;
 ;PCODE: $000005E5 VOL: 0
 ;PCODE: $000005E6 VOL: 0
-; 0000 0293 DDRB=0x00;
 ;PCODE: $000005E7 VOL: 0
+; 0000 02C9         lcd_puts(lcd_data);
 ;PCODE: $000005E8 VOL: 0
-; 0000 0294 
-; 0000 0295 PORTC=0x00;
 ;PCODE: $000005E9 VOL: 0
 ;PCODE: $000005EA VOL: 0
-; 0000 0296 DDRC=0xFF;
+; 0000 02CA         delay_ms(100);
 ;PCODE: $000005EB VOL: 0
 ;PCODE: $000005EC VOL: 0
-; 0000 0297 
-; 0000 0298 PORTD=0x00;
 ;PCODE: $000005ED VOL: 0
+; 0000 02CB         SearchTableIndex = TableIndexTarget;
 ;PCODE: $000005EE VOL: 0
-; 0000 0299 DDRD=0xFF;
 ;PCODE: $000005EF VOL: 0
+; 0000 02CC     }
 ;PCODE: $000005F0 VOL: 0
-; 0000 029A 
-; 0000 029B PORTE=0x00;
 ;PCODE: $000005F1 VOL: 0
+; 0000 02CD }
 ;PCODE: $000005F2 VOL: 0
-; 0000 029C DDRE=0x8F;
 ;PCODE: $000005F3 VOL: 0
+;
+;void s_step_adj(void)
+; 0000 02D0 {
 ;PCODE: $000005F4 VOL: 0
-; 0000 029D 
-; 0000 029E PORTF=0x00;
 ;PCODE: $000005F5 VOL: 0
+; 0000 02D1     delay_ms(100);
 ;PCODE: $000005F6 VOL: 0
-; 0000 029F DDRF=0x00;
 ;PCODE: $000005F7 VOL: 0
 ;PCODE: $000005F8 VOL: 0
-; 0000 02A0 
-; 0000 02A1 PORTG=0x00;
+; 0000 02D2     while(Middle_switch_off)
 ;PCODE: $000005F9 VOL: 0
 ;PCODE: $000005FA VOL: 0
-; 0000 02A2 DDRG=0x00;
 ;PCODE: $000005FB VOL: 0
 ;PCODE: $000005FC VOL: 0
-; 0000 02A3 /*
-; 0000 02A4 // Timer/Counter 0 initialization
-; 0000 02A5 // Clock source: System Clock
-; 0000 02A6 // Clock value: Timer 0 Stopped
-; 0000 02A7 // Mode: Normal top=0xFF
-; 0000 02A8 // OC0 output: Disconnected
-; 0000 02A9 ASSR=0x00;
-; 0000 02AA TCCR0=0x00;
-; 0000 02AB TCNT0=0x00;
-; 0000 02AC OCR0=0x00;
-; 0000 02AD */
-; 0000 02AE // Timer/Counter 1 initialization
-; 0000 02AF TCCR1A=0x00;
+; 0000 02D3     {
+; 0000 02D4         if(Left_switch_on) stop_step+=500;
 ;PCODE: $000005FD VOL: 0
 ;PCODE: $000005FE VOL: 0
-; 0000 02B0 TCCR1B=0x09;
 ;PCODE: $000005FF VOL: 0
 ;PCODE: $00000600 VOL: 0
-; 0000 02B1 TCNT1H=0x00;
 ;PCODE: $00000601 VOL: 0
 ;PCODE: $00000602 VOL: 0
-; 0000 02B2 TCNT1L=0x00;
+; 0000 02D5         if(Right_switch_on) stop_step-=500;
 ;PCODE: $00000603 VOL: 0
 ;PCODE: $00000604 VOL: 0
-; 0000 02B3 ICR1H=0x00;
 ;PCODE: $00000605 VOL: 0
 ;PCODE: $00000606 VOL: 0
-; 0000 02B4 ICR1L=0x00;
 ;PCODE: $00000607 VOL: 0
 ;PCODE: $00000608 VOL: 0
-; 0000 02B5 OCR1AH=0x00;
 ;PCODE: $00000609 VOL: 0
+; 0000 02D6 
+; 0000 02D7         lcd_clear();
 ;PCODE: $0000060A VOL: 0
-; 0000 02B6 OCR1AL=0x00;
 ;PCODE: $0000060B VOL: 0
+; 0000 02D8         lcd_gotoxy(0,0);
 ;PCODE: $0000060C VOL: 0
-; 0000 02B7 OCR1BH=0x00;
 ;PCODE: $0000060D VOL: 0
 ;PCODE: $0000060E VOL: 0
-; 0000 02B8 OCR1BL=0x00;
 ;PCODE: $0000060F VOL: 0
 ;PCODE: $00000610 VOL: 0
-; 0000 02B9 OCR1CH=0x00;
+; 0000 02D9         lcd_putsf("s_stop!!");
 ;PCODE: $00000611 VOL: 0
 ;PCODE: $00000612 VOL: 0
-; 0000 02BA OCR1CL=0x00;
 ;PCODE: $00000613 VOL: 0
 ;PCODE: $00000614 VOL: 0
-; 0000 02BB /*
-; 0000 02BC // Timer/Counter 2 initialization
-; 0000 02BD // Clock source: System Clock
-; 0000 02BE // Clock value: Timer2 Stopped
-; 0000 02BF // Mode: Normal top=0xFF
-; 0000 02C0 // OC2 output: Disconnected
-; 0000 02C1 TCCR2=0x00;
-; 0000 02C2 TCNT2=0x00;
-; 0000 02C3 OCR2=0x00;
-; 0000 02C4 */
-; 0000 02C5 TCCR3A=0x00;
+; 0000 02DA 
+; 0000 02DB         lcd_gotoxy(0, 1);
 ;PCODE: $00000615 VOL: 0
 ;PCODE: $00000616 VOL: 0
-; 0000 02C6 TCCR3B=0x09;
 ;PCODE: $00000617 VOL: 0
 ;PCODE: $00000618 VOL: 0
-; 0000 02C7 TCNT3H=0x00;
 ;PCODE: $00000619 VOL: 0
+; 0000 02DC         sprintf(lcd_data, "%d", stop_step);
 ;PCODE: $0000061A VOL: 0
-; 0000 02C8 TCNT3L=0x00;
 ;PCODE: $0000061B VOL: 0
 ;PCODE: $0000061C VOL: 0
-; 0000 02C9 ICR3H=0x00;
 ;PCODE: $0000061D VOL: 0
 ;PCODE: $0000061E VOL: 0
-; 0000 02CA ICR3L=0x00;
 ;PCODE: $0000061F VOL: 0
 ;PCODE: $00000620 VOL: 0
-; 0000 02CB OCR3AH=0x00;
 ;PCODE: $00000621 VOL: 0
 ;PCODE: $00000622 VOL: 0
-; 0000 02CC OCR3AL=0x00;
 ;PCODE: $00000623 VOL: 0
 ;PCODE: $00000624 VOL: 0
-; 0000 02CD OCR3BH=0x00;
+; 0000 02DD         lcd_puts(lcd_data);
 ;PCODE: $00000625 VOL: 0
 ;PCODE: $00000626 VOL: 0
-; 0000 02CE OCR3BL=0x00;
 ;PCODE: $00000627 VOL: 0
+; 0000 02DE         delay_ms(100);
 ;PCODE: $00000628 VOL: 0
-; 0000 02CF OCR3CH=0x00;
 ;PCODE: $00000629 VOL: 0
 ;PCODE: $0000062A VOL: 0
-; 0000 02D0 OCR3CL=0x00;
+; 0000 02DF     }
 ;PCODE: $0000062B VOL: 0
 ;PCODE: $0000062C VOL: 0
-; 0000 02D1 
-; 0000 02D2 ADMUX=0x25;
+; 0000 02E0 }
 ;PCODE: $0000062D VOL: 0
 ;PCODE: $0000062E VOL: 0
-; 0000 02D3 ADCSRA=0xCF;
+;
+;// ********************************************* main ******************************************************************
+;void main(void)
+; 0000 02E4 {
 ;PCODE: $0000062F VOL: 0
+; 0000 02E5 // Declare your local variables here
+; 0000 02E6 // menu
+; 0000 02E7 unsigned char menu = 0;
+; 0000 02E8 unsigned char menu_Max = 10;
+; 0000 02E9 
+; 0000 02EA 
+; 0000 02EB PORTA=0xFE;
+;	menu -> R17
+;	menu_Max -> R16
 ;PCODE: $00000630 VOL: 0
-; 0000 02D4 //모든 포트 Pull up
-; 0000 02D5 SFIOR=0x00;
 ;PCODE: $00000631 VOL: 0
 ;PCODE: $00000632 VOL: 0
-; 0000 02D6 
-; 0000 02D7 lcd_init(8);
 ;PCODE: $00000633 VOL: 0
 ;PCODE: $00000634 VOL: 0
 ;PCODE: $00000635 VOL: 0
-; 0000 02D8 // Global enable interrupts
-; 0000 02D9 #asm("sei")
+; 0000 02EC DDRA=0xFF;
 ;PCODE: $00000636 VOL: 0
-	sei
 ;PCODE: $00000637 VOL: 0
-; 0000 02DA //SREG = 0x80;
-; 0000 02DB while (1)
+; 0000 02ED 
+; 0000 02EE PORTB=0x00;
 ;PCODE: $00000638 VOL: 0
-; 0000 02DC       {
-; 0000 02DD         if(Left_switch_on) menu++;
 ;PCODE: $00000639 VOL: 0
+; 0000 02EF DDRB=0x00;
 ;PCODE: $0000063A VOL: 0
 ;PCODE: $0000063B VOL: 0
+; 0000 02F0 
+; 0000 02F1 PORTC=0x00;
 ;PCODE: $0000063C VOL: 0
 ;PCODE: $0000063D VOL: 0
-; 0000 02DE         if(Right_switch_on) menu--;
+; 0000 02F2 DDRC=0xFF;
 ;PCODE: $0000063E VOL: 0
 ;PCODE: $0000063F VOL: 0
+; 0000 02F3 
+; 0000 02F4 PORTD=0x00;
 ;PCODE: $00000640 VOL: 0
 ;PCODE: $00000641 VOL: 0
+; 0000 02F5 DDRD=0xFF;
 ;PCODE: $00000642 VOL: 0
 ;PCODE: $00000643 VOL: 0
-; 0000 02DF         if(menu > menu_Max)    menu = 0;
+; 0000 02F6 
+; 0000 02F7 PORTE=0x00;
 ;PCODE: $00000644 VOL: 0
 ;PCODE: $00000645 VOL: 0
+; 0000 02F8 DDRE=0x8F;
 ;PCODE: $00000646 VOL: 0
 ;PCODE: $00000647 VOL: 0
+; 0000 02F9 
+; 0000 02FA PORTF=0x00;
 ;PCODE: $00000648 VOL: 0
 ;PCODE: $00000649 VOL: 0
-; 0000 02E0         if(menu == 0)
+; 0000 02FB DDRF=0x00;
 ;PCODE: $0000064A VOL: 0
 ;PCODE: $0000064B VOL: 0
+; 0000 02FC 
+; 0000 02FD PORTG=0x00;
 ;PCODE: $0000064C VOL: 0
-; 0000 02E1             if(Right_switch_on) menu = menu_Max;
 ;PCODE: $0000064D VOL: 0
+; 0000 02FE DDRG=0x00;
 ;PCODE: $0000064E VOL: 0
 ;PCODE: $0000064F VOL: 0
+; 0000 02FF /*
+; 0000 0300 // Timer/Counter 0 initialization
+; 0000 0301 // Clock source: System Clock
+; 0000 0302 // Clock value: Timer 0 Stopped
+; 0000 0303 // Mode: Normal top=0xFF
+; 0000 0304 // OC0 output: Disconnected
+; 0000 0305 ASSR=0x00;
+; 0000 0306 TCCR0=0x00;
+; 0000 0307 TCNT0=0x00;
+; 0000 0308 OCR0=0x00;
+; 0000 0309 */
+; 0000 030A // Timer/Counter 1 initialization
+; 0000 030B TCCR1A=0x00;
 ;PCODE: $00000650 VOL: 0
 ;PCODE: $00000651 VOL: 0
-; 0000 02E2 
-; 0000 02E3         //Distance averaging...
-; 0000 02E4         //mean_dist();
-; 0000 02E5         switch(menu)
+; 0000 030C TCCR1B=0x09;
 ;PCODE: $00000652 VOL: 0
 ;PCODE: $00000653 VOL: 0
+; 0000 030D TCNT1H=0x00;
 ;PCODE: $00000654 VOL: 0
 ;PCODE: $00000655 VOL: 0
-; 0000 02E6         {
-; 0000 02E7             case 0:
+; 0000 030E TCNT1L=0x00;
 ;PCODE: $00000656 VOL: 0
 ;PCODE: $00000657 VOL: 0
-; 0000 02E8                     lcd_clear();
+; 0000 030F ICR1H=0x00;
 ;PCODE: $00000658 VOL: 0
-; 0000 02E9                     lcd_gotoxy(0, 0);
 ;PCODE: $00000659 VOL: 0
+; 0000 0310 ICR1L=0x00;
 ;PCODE: $0000065A VOL: 0
 ;PCODE: $0000065B VOL: 0
+; 0000 0311 OCR1AH=0x00;
 ;PCODE: $0000065C VOL: 0
 ;PCODE: $0000065D VOL: 0
-; 0000 02EA                     lcd_putsf("1.PSD TEST");
+; 0000 0312 OCR1AL=0x00;
 ;PCODE: $0000065E VOL: 0
 ;PCODE: $0000065F VOL: 0
+; 0000 0313 OCR1BH=0x00;
 ;PCODE: $00000660 VOL: 0
 ;PCODE: $00000661 VOL: 0
-; 0000 02EB                     if(Middle_switch_on) PSD_test();
+; 0000 0314 OCR1BL=0x00;
 ;PCODE: $00000662 VOL: 0
 ;PCODE: $00000663 VOL: 0
+; 0000 0315 OCR1CH=0x00;
 ;PCODE: $00000664 VOL: 0
 ;PCODE: $00000665 VOL: 0
-; 0000 02EC                     delay_ms(300);
+; 0000 0316 OCR1CL=0x00;
 ;PCODE: $00000666 VOL: 0
 ;PCODE: $00000667 VOL: 0
+; 0000 0317 /*
+; 0000 0318 // Timer/Counter 2 initialization
+; 0000 0319 // Clock source: System Clock
+; 0000 031A // Clock value: Timer2 Stopped
+; 0000 031B // Mode: Normal top=0xFF
+; 0000 031C // OC2 output: Disconnected
+; 0000 031D TCCR2=0x00;
+; 0000 031E TCNT2=0x00;
+; 0000 031F OCR2=0x00;
+; 0000 0320 */
+; 0000 0321 TCCR3A=0x00;
 ;PCODE: $00000668 VOL: 0
 ;PCODE: $00000669 VOL: 0
-; 0000 02ED                     break;
+; 0000 0322 TCCR3B=0x09;
 ;PCODE: $0000066A VOL: 0
-; 0000 02EE 
-; 0000 02EF             case 1:
 ;PCODE: $0000066B VOL: 0
+; 0000 0323 TCNT3H=0x00;
 ;PCODE: $0000066C VOL: 0
 ;PCODE: $0000066D VOL: 0
-; 0000 02F0                     lcd_clear();
+; 0000 0324 TCNT3L=0x00;
 ;PCODE: $0000066E VOL: 0
-; 0000 02F1                     lcd_gotoxy(0, 0);
 ;PCODE: $0000066F VOL: 0
+; 0000 0325 ICR3H=0x00;
 ;PCODE: $00000670 VOL: 0
 ;PCODE: $00000671 VOL: 0
+; 0000 0326 ICR3L=0x00;
 ;PCODE: $00000672 VOL: 0
 ;PCODE: $00000673 VOL: 0
-; 0000 02F2                     lcd_putsf("2.CDS");
+; 0000 0327 OCR3AH=0x00;
 ;PCODE: $00000674 VOL: 0
 ;PCODE: $00000675 VOL: 0
+; 0000 0328 OCR3AL=0x00;
 ;PCODE: $00000676 VOL: 0
 ;PCODE: $00000677 VOL: 0
-; 0000 02F3                     if(Middle_switch_on)    cds_test();
+; 0000 0329 OCR3BH=0x00;
 ;PCODE: $00000678 VOL: 0
 ;PCODE: $00000679 VOL: 0
+; 0000 032A OCR3BL=0x00;
 ;PCODE: $0000067A VOL: 0
 ;PCODE: $0000067B VOL: 0
-; 0000 02F4                     delay_ms(300);
+; 0000 032B OCR3CH=0x00;
 ;PCODE: $0000067C VOL: 0
 ;PCODE: $0000067D VOL: 0
+; 0000 032C OCR3CL=0x00;
 ;PCODE: $0000067E VOL: 0
 ;PCODE: $0000067F VOL: 0
-; 0000 02F5                     break;
+; 0000 032D 
+; 0000 032E ADMUX=0x25;
 ;PCODE: $00000680 VOL: 0
-; 0000 02F6 
-; 0000 02F7             case 2:
 ;PCODE: $00000681 VOL: 0
+; 0000 032F ADCSRA=0xCF;
 ;PCODE: $00000682 VOL: 0
 ;PCODE: $00000683 VOL: 0
-; 0000 02F8 
-; 0000 02F9                     lcd_clear();
+; 0000 0330 //모든 포트 Pull up
+; 0000 0331 SFIOR=0x00;
 ;PCODE: $00000684 VOL: 0
-; 0000 02FA                     lcd_gotoxy(0, 0);
 ;PCODE: $00000685 VOL: 0
+; 0000 0332 
+; 0000 0333 lcd_init(8);
 ;PCODE: $00000686 VOL: 0
 ;PCODE: $00000687 VOL: 0
 ;PCODE: $00000688 VOL: 0
+; 0000 0334 // Global enable interrupts
+; 0000 0335 #asm("sei")
 ;PCODE: $00000689 VOL: 0
-; 0000 02FB                     lcd_putsf("3.PSD Tuning");
+	sei
 ;PCODE: $0000068A VOL: 0
+; 0000 0336 //SREG = 0x80;
+; 0000 0337 while (1)
 ;PCODE: $0000068B VOL: 0
+; 0000 0338       {
+; 0000 0339         if(Left_switch_on) menu++;
 ;PCODE: $0000068C VOL: 0
 ;PCODE: $0000068D VOL: 0
-; 0000 02FC                     if(Middle_switch_on)    PSD_tuning();
 ;PCODE: $0000068E VOL: 0
 ;PCODE: $0000068F VOL: 0
 ;PCODE: $00000690 VOL: 0
+; 0000 033A         if(Right_switch_on) menu--;
 ;PCODE: $00000691 VOL: 0
-; 0000 02FD                     delay_ms(300);
 ;PCODE: $00000692 VOL: 0
 ;PCODE: $00000693 VOL: 0
 ;PCODE: $00000694 VOL: 0
 ;PCODE: $00000695 VOL: 0
-; 0000 02FE                     break;
 ;PCODE: $00000696 VOL: 0
-; 0000 02FF 
-; 0000 0300             case 3:
+; 0000 033B         if(menu > menu_Max)    menu = 0;
 ;PCODE: $00000697 VOL: 0
 ;PCODE: $00000698 VOL: 0
 ;PCODE: $00000699 VOL: 0
-; 0000 0301                     lcd_clear();
 ;PCODE: $0000069A VOL: 0
-; 0000 0302                     lcd_gotoxy(0, 0);
 ;PCODE: $0000069B VOL: 0
 ;PCODE: $0000069C VOL: 0
+; 0000 033C         if(menu == 0)
 ;PCODE: $0000069D VOL: 0
 ;PCODE: $0000069E VOL: 0
 ;PCODE: $0000069F VOL: 0
-; 0000 0303                     lcd_putsf("4.cds Tuning");
+; 0000 033D             if(Right_switch_on) menu = menu_Max;
 ;PCODE: $000006A0 VOL: 0
 ;PCODE: $000006A1 VOL: 0
 ;PCODE: $000006A2 VOL: 0
 ;PCODE: $000006A3 VOL: 0
-; 0000 0304                     if(Middle_switch_on)    cds_tuning();
 ;PCODE: $000006A4 VOL: 0
+; 0000 033E 
+; 0000 033F         //Distance averaging...
+; 0000 0340         //mean_dist();
+; 0000 0341         switch(menu)
 ;PCODE: $000006A5 VOL: 0
 ;PCODE: $000006A6 VOL: 0
 ;PCODE: $000006A7 VOL: 0
-; 0000 0305                     delay_ms(300);
 ;PCODE: $000006A8 VOL: 0
+; 0000 0342         {
+; 0000 0343             case 0:
 ;PCODE: $000006A9 VOL: 0
 ;PCODE: $000006AA VOL: 0
+; 0000 0344                     lcd_clear();
 ;PCODE: $000006AB VOL: 0
-; 0000 0306                     break;
+; 0000 0345                     lcd_gotoxy(0, 0);
 ;PCODE: $000006AC VOL: 0
-; 0000 0307 
-; 0000 0308 
-; 0000 0309             case 4:
 ;PCODE: $000006AD VOL: 0
 ;PCODE: $000006AE VOL: 0
 ;PCODE: $000006AF VOL: 0
-; 0000 030A                     lcd_clear();
 ;PCODE: $000006B0 VOL: 0
-; 0000 030B                     lcd_gotoxy(0, 0);
+; 0000 0346                     lcd_putsf("1.PSD TEST");
 ;PCODE: $000006B1 VOL: 0
 ;PCODE: $000006B2 VOL: 0
 ;PCODE: $000006B3 VOL: 0
 ;PCODE: $000006B4 VOL: 0
+; 0000 0347                     if(Middle_switch_on) PSD_test();
 ;PCODE: $000006B5 VOL: 0
-; 0000 030C                     lcd_putsf("5.Motor_test");
 ;PCODE: $000006B6 VOL: 0
 ;PCODE: $000006B7 VOL: 0
 ;PCODE: $000006B8 VOL: 0
+; 0000 0348                     delay_ms(300);
 ;PCODE: $000006B9 VOL: 0
-; 0000 030D                     if(Middle_switch_on)    motor_test();
 ;PCODE: $000006BA VOL: 0
 ;PCODE: $000006BB VOL: 0
 ;PCODE: $000006BC VOL: 0
+; 0000 0349                     break;
 ;PCODE: $000006BD VOL: 0
-; 0000 030E                     delay_ms(300);
+; 0000 034A 
+; 0000 034B             case 1:
 ;PCODE: $000006BE VOL: 0
 ;PCODE: $000006BF VOL: 0
 ;PCODE: $000006C0 VOL: 0
+; 0000 034C                     lcd_clear();
 ;PCODE: $000006C1 VOL: 0
-; 0000 030F                     break;
+; 0000 034D                     lcd_gotoxy(0, 0);
 ;PCODE: $000006C2 VOL: 0
-; 0000 0310 
-; 0000 0311              case 5:
 ;PCODE: $000006C3 VOL: 0
 ;PCODE: $000006C4 VOL: 0
 ;PCODE: $000006C5 VOL: 0
-; 0000 0312                     lcd_clear();
 ;PCODE: $000006C6 VOL: 0
-; 0000 0313                     lcd_gotoxy(0, 0);
+; 0000 034E                     lcd_putsf("2.CDS");
 ;PCODE: $000006C7 VOL: 0
 ;PCODE: $000006C8 VOL: 0
 ;PCODE: $000006C9 VOL: 0
 ;PCODE: $000006CA VOL: 0
+; 0000 034F                     if(Middle_switch_on)    cds_test();
 ;PCODE: $000006CB VOL: 0
-; 0000 0314                     lcd_putsf("6.Cos");
 ;PCODE: $000006CC VOL: 0
 ;PCODE: $000006CD VOL: 0
 ;PCODE: $000006CE VOL: 0
+; 0000 0350                     delay_ms(300);
 ;PCODE: $000006CF VOL: 0
-; 0000 0315                     if(Middle_switch_on)    check_angle();
 ;PCODE: $000006D0 VOL: 0
 ;PCODE: $000006D1 VOL: 0
 ;PCODE: $000006D2 VOL: 0
+; 0000 0351                     break;
 ;PCODE: $000006D3 VOL: 0
-; 0000 0316                     delay_ms(300);
+; 0000 0352 
+; 0000 0353             case 2:
 ;PCODE: $000006D4 VOL: 0
 ;PCODE: $000006D5 VOL: 0
 ;PCODE: $000006D6 VOL: 0
+; 0000 0354 
+; 0000 0355                     lcd_clear();
 ;PCODE: $000006D7 VOL: 0
-; 0000 0317                     break;
+; 0000 0356                     lcd_gotoxy(0, 0);
 ;PCODE: $000006D8 VOL: 0
-; 0000 0318 
-; 0000 0319              case 6:
 ;PCODE: $000006D9 VOL: 0
 ;PCODE: $000006DA VOL: 0
 ;PCODE: $000006DB VOL: 0
-; 0000 031A                     lcd_clear();
 ;PCODE: $000006DC VOL: 0
-; 0000 031B                     lcd_gotoxy(0, 0);
+; 0000 0357                     lcd_putsf("3.PSD Tuning");
 ;PCODE: $000006DD VOL: 0
 ;PCODE: $000006DE VOL: 0
 ;PCODE: $000006DF VOL: 0
 ;PCODE: $000006E0 VOL: 0
+; 0000 0358                     if(Middle_switch_on)    PSD_tuning();
 ;PCODE: $000006E1 VOL: 0
-; 0000 031C                     lcd_putsf("7.Head");
 ;PCODE: $000006E2 VOL: 0
 ;PCODE: $000006E3 VOL: 0
 ;PCODE: $000006E4 VOL: 0
+; 0000 0359                     delay_ms(300);
 ;PCODE: $000006E5 VOL: 0
-; 0000 031D                     if(Middle_switch_on)    Heading();
 ;PCODE: $000006E6 VOL: 0
 ;PCODE: $000006E7 VOL: 0
 ;PCODE: $000006E8 VOL: 0
+; 0000 035A                     break;
 ;PCODE: $000006E9 VOL: 0
-; 0000 031E                     delay_ms(300);
+; 0000 035B 
+; 0000 035C             case 3:
 ;PCODE: $000006EA VOL: 0
 ;PCODE: $000006EB VOL: 0
 ;PCODE: $000006EC VOL: 0
+; 0000 035D                     lcd_clear();
 ;PCODE: $000006ED VOL: 0
-; 0000 031F                     break;
+; 0000 035E                     lcd_gotoxy(0, 0);
 ;PCODE: $000006EE VOL: 0
-; 0000 0320 
-; 0000 0321              case 7:
 ;PCODE: $000006EF VOL: 0
 ;PCODE: $000006F0 VOL: 0
 ;PCODE: $000006F1 VOL: 0
-; 0000 0322                     lcd_clear();
 ;PCODE: $000006F2 VOL: 0
-; 0000 0323                     lcd_gotoxy(0, 0);
+; 0000 035F                     lcd_putsf("4.cds Tuning");
 ;PCODE: $000006F3 VOL: 0
 ;PCODE: $000006F4 VOL: 0
 ;PCODE: $000006F5 VOL: 0
 ;PCODE: $000006F6 VOL: 0
+; 0000 0360                     if(Middle_switch_on)    cds_tuning();
 ;PCODE: $000006F7 VOL: 0
-; 0000 0324                     lcd_putsf("8.Navigate");
 ;PCODE: $000006F8 VOL: 0
 ;PCODE: $000006F9 VOL: 0
 ;PCODE: $000006FA VOL: 0
+; 0000 0361                     delay_ms(300);
 ;PCODE: $000006FB VOL: 0
-; 0000 0325                     if(Middle_switch_on)    navigate();
 ;PCODE: $000006FC VOL: 0
 ;PCODE: $000006FD VOL: 0
 ;PCODE: $000006FE VOL: 0
+; 0000 0362                     break;
 ;PCODE: $000006FF VOL: 0
-; 0000 0326                     delay_ms(300);
+; 0000 0363 
+; 0000 0364 
+; 0000 0365             case 4:
 ;PCODE: $00000700 VOL: 0
 ;PCODE: $00000701 VOL: 0
 ;PCODE: $00000702 VOL: 0
+; 0000 0366                     lcd_clear();
 ;PCODE: $00000703 VOL: 0
-; 0000 0327                     break;
+; 0000 0367                     lcd_gotoxy(0, 0);
 ;PCODE: $00000704 VOL: 0
-; 0000 0328 
-; 0000 0329              case 8:
 ;PCODE: $00000705 VOL: 0
 ;PCODE: $00000706 VOL: 0
 ;PCODE: $00000707 VOL: 0
-; 0000 032A                     lcd_clear();
 ;PCODE: $00000708 VOL: 0
-; 0000 032B                     lcd_gotoxy(0, 0);
+; 0000 0368                     lcd_putsf("5.Motor_test");
 ;PCODE: $00000709 VOL: 0
 ;PCODE: $0000070A VOL: 0
 ;PCODE: $0000070B VOL: 0
 ;PCODE: $0000070C VOL: 0
+; 0000 0369                     if(Middle_switch_on)    motor_test();
 ;PCODE: $0000070D VOL: 0
-; 0000 032C                     lcd_putsf("9.Pgain");
 ;PCODE: $0000070E VOL: 0
 ;PCODE: $0000070F VOL: 0
 ;PCODE: $00000710 VOL: 0
+; 0000 036A                     delay_ms(300);
 ;PCODE: $00000711 VOL: 0
-; 0000 032D                     lcd_gotoxy(0, 1);
 ;PCODE: $00000712 VOL: 0
 ;PCODE: $00000713 VOL: 0
 ;PCODE: $00000714 VOL: 0
+; 0000 036B                     break;
 ;PCODE: $00000715 VOL: 0
+; 0000 036C 
+; 0000 036D              case 5:
 ;PCODE: $00000716 VOL: 0
-; 0000 032E                     sprintf(lcd_data, "%d", Pgain);
 ;PCODE: $00000717 VOL: 0
 ;PCODE: $00000718 VOL: 0
+; 0000 036E                     lcd_clear();
 ;PCODE: $00000719 VOL: 0
+; 0000 036F                     lcd_gotoxy(0, 0);
 ;PCODE: $0000071A VOL: 0
 ;PCODE: $0000071B VOL: 0
 ;PCODE: $0000071C VOL: 0
 ;PCODE: $0000071D VOL: 0
 ;PCODE: $0000071E VOL: 0
+; 0000 0370                     lcd_putsf("6.Cos");
 ;PCODE: $0000071F VOL: 0
 ;PCODE: $00000720 VOL: 0
 ;PCODE: $00000721 VOL: 0
 ;PCODE: $00000722 VOL: 0
-; 0000 032F                     lcd_puts(lcd_data);
+; 0000 0371                     if(Middle_switch_on)    check_angle();
 ;PCODE: $00000723 VOL: 0
 ;PCODE: $00000724 VOL: 0
 ;PCODE: $00000725 VOL: 0
-; 0000 0330                     if(Middle_switch_on)    Pgain_adj();
 ;PCODE: $00000726 VOL: 0
+; 0000 0372                     delay_ms(300);
 ;PCODE: $00000727 VOL: 0
 ;PCODE: $00000728 VOL: 0
 ;PCODE: $00000729 VOL: 0
-; 0000 0331                     delay_ms(300);
 ;PCODE: $0000072A VOL: 0
+; 0000 0373                     break;
 ;PCODE: $0000072B VOL: 0
+; 0000 0374 
+; 0000 0375              case 6:
 ;PCODE: $0000072C VOL: 0
 ;PCODE: $0000072D VOL: 0
-; 0000 0332                     break;
 ;PCODE: $0000072E VOL: 0
-; 0000 0333 
-; 0000 0334              case 9:
+; 0000 0376                     lcd_clear();
 ;PCODE: $0000072F VOL: 0
+; 0000 0377                     lcd_gotoxy(0, 0);
 ;PCODE: $00000730 VOL: 0
 ;PCODE: $00000731 VOL: 0
-; 0000 0335                     lcd_clear();
 ;PCODE: $00000732 VOL: 0
-; 0000 0336                     lcd_gotoxy(0, 0);
 ;PCODE: $00000733 VOL: 0
 ;PCODE: $00000734 VOL: 0
+; 0000 0378                     lcd_putsf("7.Head");
 ;PCODE: $00000735 VOL: 0
 ;PCODE: $00000736 VOL: 0
 ;PCODE: $00000737 VOL: 0
-; 0000 0337                     lcd_putsf("10.Speed");
 ;PCODE: $00000738 VOL: 0
+; 0000 0379                     if(Middle_switch_on)    Heading();
 ;PCODE: $00000739 VOL: 0
 ;PCODE: $0000073A VOL: 0
 ;PCODE: $0000073B VOL: 0
-; 0000 0338                     lcd_gotoxy(0, 1);
 ;PCODE: $0000073C VOL: 0
+; 0000 037A                     delay_ms(300);
 ;PCODE: $0000073D VOL: 0
 ;PCODE: $0000073E VOL: 0
 ;PCODE: $0000073F VOL: 0
 ;PCODE: $00000740 VOL: 0
-; 0000 0339                     sprintf(lcd_data, "%d", TableIndexTarget);
+; 0000 037B                     break;
 ;PCODE: $00000741 VOL: 0
+; 0000 037C 
+; 0000 037D              case 7:
 ;PCODE: $00000742 VOL: 0
 ;PCODE: $00000743 VOL: 0
 ;PCODE: $00000744 VOL: 0
+; 0000 037E                     lcd_clear();
 ;PCODE: $00000745 VOL: 0
+; 0000 037F                     lcd_gotoxy(0, 0);
 ;PCODE: $00000746 VOL: 0
 ;PCODE: $00000747 VOL: 0
 ;PCODE: $00000748 VOL: 0
 ;PCODE: $00000749 VOL: 0
 ;PCODE: $0000074A VOL: 0
+; 0000 0380                     lcd_putsf("8.Navigate");
 ;PCODE: $0000074B VOL: 0
-; 0000 033A                     lcd_puts(lcd_data);
 ;PCODE: $0000074C VOL: 0
 ;PCODE: $0000074D VOL: 0
 ;PCODE: $0000074E VOL: 0
-; 0000 033B                     if(Middle_switch_on)    speed_adj();
+; 0000 0381                     if(Middle_switch_on)    navigate();
 ;PCODE: $0000074F VOL: 0
 ;PCODE: $00000750 VOL: 0
 ;PCODE: $00000751 VOL: 0
 ;PCODE: $00000752 VOL: 0
-; 0000 033C                     delay_ms(300);
+; 0000 0382                     delay_ms(300);
 ;PCODE: $00000753 VOL: 0
 ;PCODE: $00000754 VOL: 0
 ;PCODE: $00000755 VOL: 0
 ;PCODE: $00000756 VOL: 0
-; 0000 033D                     break;
+; 0000 0383                     break;
 ;PCODE: $00000757 VOL: 0
-; 0000 033E 
-; 0000 033F              case 10:
+; 0000 0384 
+; 0000 0385              case 8:
 ;PCODE: $00000758 VOL: 0
 ;PCODE: $00000759 VOL: 0
 ;PCODE: $0000075A VOL: 0
-; 0000 0340                     lcd_clear();
+; 0000 0386                     lcd_clear();
 ;PCODE: $0000075B VOL: 0
-; 0000 0341                     lcd_gotoxy(0, 0);
+; 0000 0387                     lcd_gotoxy(0, 0);
 ;PCODE: $0000075C VOL: 0
 ;PCODE: $0000075D VOL: 0
 ;PCODE: $0000075E VOL: 0
 ;PCODE: $0000075F VOL: 0
 ;PCODE: $00000760 VOL: 0
-; 0000 0342                     lcd_putsf("11.S_STEP");
+; 0000 0388                     lcd_putsf("9.Pgain");
 ;PCODE: $00000761 VOL: 0
 ;PCODE: $00000762 VOL: 0
 ;PCODE: $00000763 VOL: 0
 ;PCODE: $00000764 VOL: 0
-; 0000 0343                     lcd_gotoxy(0, 1);
+; 0000 0389                     lcd_gotoxy(0, 1);
 ;PCODE: $00000765 VOL: 0
 ;PCODE: $00000766 VOL: 0
 ;PCODE: $00000767 VOL: 0
 ;PCODE: $00000768 VOL: 0
 ;PCODE: $00000769 VOL: 0
-; 0000 0344                     sprintf(lcd_data, "%d", stop_step);
+; 0000 038A                     sprintf(lcd_data, "%d", Pgain);
 ;PCODE: $0000076A VOL: 0
 ;PCODE: $0000076B VOL: 0
 ;PCODE: $0000076C VOL: 0
@@ -2765,32 +2840,137 @@
 ;PCODE: $00000772 VOL: 0
 ;PCODE: $00000773 VOL: 0
 ;PCODE: $00000774 VOL: 0
-; 0000 0345                     lcd_puts(lcd_data);
 ;PCODE: $00000775 VOL: 0
+; 0000 038B                     lcd_puts(lcd_data);
 ;PCODE: $00000776 VOL: 0
 ;PCODE: $00000777 VOL: 0
-; 0000 0346                     if(Middle_switch_on)    s_step_adj();
 ;PCODE: $00000778 VOL: 0
+; 0000 038C                     if(Middle_switch_on)    Pgain_adj();
 ;PCODE: $00000779 VOL: 0
 ;PCODE: $0000077A VOL: 0
 ;PCODE: $0000077B VOL: 0
-; 0000 0347                     delay_ms(300);
 ;PCODE: $0000077C VOL: 0
+; 0000 038D                     delay_ms(300);
 ;PCODE: $0000077D VOL: 0
 ;PCODE: $0000077E VOL: 0
 ;PCODE: $0000077F VOL: 0
-; 0000 0348                     break;
 ;PCODE: $00000780 VOL: 0
-; 0000 0349 
-; 0000 034A          }
+; 0000 038E                     break;
 ;PCODE: $00000781 VOL: 0
-; 0000 034B          //delay_ms(250);
-; 0000 034C       }
+; 0000 038F 
+; 0000 0390              case 9:
 ;PCODE: $00000782 VOL: 0
 ;PCODE: $00000783 VOL: 0
-; 0000 034D 
-; 0000 034E }
 ;PCODE: $00000784 VOL: 0
+; 0000 0391                     lcd_clear();
 ;PCODE: $00000785 VOL: 0
+; 0000 0392                     lcd_gotoxy(0, 0);
 ;PCODE: $00000786 VOL: 0
+;PCODE: $00000787 VOL: 0
+;PCODE: $00000788 VOL: 0
+;PCODE: $00000789 VOL: 0
+;PCODE: $0000078A VOL: 0
+; 0000 0393                     lcd_putsf("10.Speed");
+;PCODE: $0000078B VOL: 0
+;PCODE: $0000078C VOL: 0
+;PCODE: $0000078D VOL: 0
+;PCODE: $0000078E VOL: 0
+; 0000 0394                     lcd_gotoxy(0, 1);
+;PCODE: $0000078F VOL: 0
+;PCODE: $00000790 VOL: 0
+;PCODE: $00000791 VOL: 0
+;PCODE: $00000792 VOL: 0
+;PCODE: $00000793 VOL: 0
+; 0000 0395                     sprintf(lcd_data, "%d", TableIndexTarget);
+;PCODE: $00000794 VOL: 0
+;PCODE: $00000795 VOL: 0
+;PCODE: $00000796 VOL: 0
+;PCODE: $00000797 VOL: 0
+;PCODE: $00000798 VOL: 0
+;PCODE: $00000799 VOL: 0
+;PCODE: $0000079A VOL: 0
+;PCODE: $0000079B VOL: 0
+;PCODE: $0000079C VOL: 0
+;PCODE: $0000079D VOL: 0
+;PCODE: $0000079E VOL: 0
+; 0000 0396                     lcd_puts(lcd_data);
+;PCODE: $0000079F VOL: 0
+;PCODE: $000007A0 VOL: 0
+;PCODE: $000007A1 VOL: 0
+; 0000 0397                     if(Middle_switch_on)    speed_adj();
+;PCODE: $000007A2 VOL: 0
+;PCODE: $000007A3 VOL: 0
+;PCODE: $000007A4 VOL: 0
+;PCODE: $000007A5 VOL: 0
+; 0000 0398                     delay_ms(300);
+;PCODE: $000007A6 VOL: 0
+;PCODE: $000007A7 VOL: 0
+;PCODE: $000007A8 VOL: 0
+;PCODE: $000007A9 VOL: 0
+; 0000 0399                     break;
+;PCODE: $000007AA VOL: 0
+; 0000 039A 
+; 0000 039B              case 10:
+;PCODE: $000007AB VOL: 0
+;PCODE: $000007AC VOL: 0
+;PCODE: $000007AD VOL: 0
+; 0000 039C                     lcd_clear();
+;PCODE: $000007AE VOL: 0
+; 0000 039D                     lcd_gotoxy(0, 0);
+;PCODE: $000007AF VOL: 0
+;PCODE: $000007B0 VOL: 0
+;PCODE: $000007B1 VOL: 0
+;PCODE: $000007B2 VOL: 0
+;PCODE: $000007B3 VOL: 0
+; 0000 039E                     lcd_putsf("11.S_STEP");
+;PCODE: $000007B4 VOL: 0
+;PCODE: $000007B5 VOL: 0
+;PCODE: $000007B6 VOL: 0
+;PCODE: $000007B7 VOL: 0
+; 0000 039F                     lcd_gotoxy(0, 1);
+;PCODE: $000007B8 VOL: 0
+;PCODE: $000007B9 VOL: 0
+;PCODE: $000007BA VOL: 0
+;PCODE: $000007BB VOL: 0
+;PCODE: $000007BC VOL: 0
+; 0000 03A0                     sprintf(lcd_data, "%d", stop_step);
+;PCODE: $000007BD VOL: 0
+;PCODE: $000007BE VOL: 0
+;PCODE: $000007BF VOL: 0
+;PCODE: $000007C0 VOL: 0
+;PCODE: $000007C1 VOL: 0
+;PCODE: $000007C2 VOL: 0
+;PCODE: $000007C3 VOL: 0
+;PCODE: $000007C4 VOL: 0
+;PCODE: $000007C5 VOL: 0
+;PCODE: $000007C6 VOL: 0
+;PCODE: $000007C7 VOL: 0
+; 0000 03A1                     lcd_puts(lcd_data);
+;PCODE: $000007C8 VOL: 0
+;PCODE: $000007C9 VOL: 0
+;PCODE: $000007CA VOL: 0
+; 0000 03A2                     if(Middle_switch_on)    s_step_adj();
+;PCODE: $000007CB VOL: 0
+;PCODE: $000007CC VOL: 0
+;PCODE: $000007CD VOL: 0
+;PCODE: $000007CE VOL: 0
+; 0000 03A3                     delay_ms(300);
+;PCODE: $000007CF VOL: 0
+;PCODE: $000007D0 VOL: 0
+;PCODE: $000007D1 VOL: 0
+;PCODE: $000007D2 VOL: 0
+; 0000 03A4                     break;
+;PCODE: $000007D3 VOL: 0
+; 0000 03A5 
+; 0000 03A6          }
+;PCODE: $000007D4 VOL: 0
+; 0000 03A7          //delay_ms(250);
+; 0000 03A8       }
+;PCODE: $000007D5 VOL: 0
+;PCODE: $000007D6 VOL: 0
+; 0000 03A9 
+; 0000 03AA }
+;PCODE: $000007D7 VOL: 0
+;PCODE: $000007D8 VOL: 0
+;PCODE: $000007D9 VOL: 0
 ;
